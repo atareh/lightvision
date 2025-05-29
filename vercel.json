@@ -1,0 +1,28 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/token-price-refresh",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/token-social-sync",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/daily-dune-sync",
+      "schedule": "0 6,18 * * *"
+    },
+    {
+      "path": "/api/cron/cmc-sync",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/memes-metrics",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/poll-dune-results",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}

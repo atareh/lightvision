@@ -1,0 +1,86 @@
+@font-face {
+  font-family: "Teodor";
+  src: url("/fonts/TeodorTRIAL-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Teodor";
+  src: url("/fonts/TeodorTRIAL-RegularItalic.ttf") format("truetype");
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Teodor";
+  src: url("/fonts/TeodorTRIAL-LightItalic.ttf") format("truetype");
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 158 64% 52%;
+    --foreground: 0 0% 98%;
+
+    --radius: 8px;
+
+    --card: 158 64% 15%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 158 64% 15%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 158 64% 85%;
+    --primary-foreground: 158 64% 15%;
+
+    --secondary: 158 64% 20%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 158 64% 20%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 158 64% 85%;
+    --accent-foreground: 158 64% 15%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 158 64% 25%;
+    --input: 158 64% 20%;
+    --ring: 158 64% 85%;
+
+    --chart-1: 158 64% 85%;
+    --chart-2: 45 93% 85%;
+    --chart-3: 199 89% 48%;
+    --chart-4: 316 70% 50%;
+    --chart-5: 0 0% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    background-color: #062723;
+    color: white;
+    height: 100%;
+  }
+}
