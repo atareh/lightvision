@@ -533,16 +533,27 @@ export default function HyperEVMTokenList() {
                     </div>
 
                     {/* Row 2: Contract + Metrics */}
-                    <div className="flex items-center justify-between">
-                      {/* Left: Contract */}
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {/* Row 2: Contract Address + Metrics - Improved Mobile Layout */}
+                    <div className="flex flex-col space-y-2 mb-3">
+                      {/* Top row: Contract Address + Social Links */}
+                      <div className="flex items-center justify-between">
+                        {/* Left: Contract Address */}
                         <div className="h-3 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+
+                        {/* Right: Social Links */}
+                        <div className="text-xs text-[#868d8f] flex items-center gap-2">
+                          <span className="opacity-60">—</span>
+                        </div>
                       </div>
 
-                      {/* Right: Metrics */}
-                      <div className="flex items-center gap-4 flex-shrink-0">
-                        <div className="h-3 w-12 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
-                        <div className="h-3 w-14 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                      {/* Bottom row: Key Metrics */}
+                      <div className="flex items-center justify-between text-[10px] text-[#868d8f]">
+                        <div className="flex items-center gap-2">
+                          <div className="h-4 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded-full"></div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-4 w-20 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded-full"></div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -982,69 +993,82 @@ export default function HyperEVMTokenList() {
                   </div>
 
                   {/* Row 2: Contract Address + Metrics */}
-                  <div className="flex items-center justify-between mb-3">
-                    {/* Left: Contract Address */}
-                    <div
-                      className="text-[10px] text-[#868d8f] flex items-center gap-2 cursor-pointer hover:text-[#51d2c1] transition-colors group"
-                      onClick={(e) => copyToClipboard(token.contract_address, e)}
-                      title={`Click to copy: ${token.contract_address}`}
-                    >
-                      <span className="group-hover:text-[#51d2c1]">
-                        {token.contract_address.slice(0, 3)}...{token.contract_address.slice(-3)}
-                      </span>
-                      <Copy className="h-3 w-3 opacity-60 group-hover:opacity-100 group-hover:text-[#51d2c1] transition-all" />
-                    </div>
-                    {/* Social Links */}
-                    <div className="text-xs text-[#868d8f] flex items-center gap-2">
-                      {(() => {
-                        // Combine social links and websites
-                        const allLinks = [
-                          ...(token.socials || []).map((social: any) => ({
-                            url: social.url,
-                            platform: social.platform,
-                            type: "social",
-                          })),
-                          ...(token.websites || []).map((website: any) => ({
-                            url: website.url,
-                            platform: "website",
-                            type: "website",
-                          })),
-                        ]
+                  {/* Row 2: Contract Address + Metrics - Improved Mobile Layout */}
+                  <div className="flex flex-col space-y-2 mb-3">
+                    {/* Top row: Contract Address + Social Links */}
+                    <div className="flex items-center justify-between">
+                      {/* Left: Contract Address */}
+                      <div
+                        className="text-[10px] text-[#868d8f] flex items-center gap-2 cursor-pointer hover:text-[#51d2c1] transition-colors group"
+                        onClick={(e) => copyToClipboard(token.contract_address, e)}
+                        title={`Click to copy: ${token.contract_address}`}
+                      >
+                        <span className="group-hover:text-[#51d2c1]">
+                          {token.contract_address.slice(0, 3)}...{token.contract_address.slice(-3)}
+                        </span>
+                        <Copy className="h-3 w-3 opacity-60 group-hover:opacity-100 group-hover:text-[#51d2c1] transition-all" />
+                      </div>
 
-                        return allLinks.length > 0 ? (
-                          allLinks.slice(0, 3).map((link: any, index: number) => (
-                            <a
-                              key={index}
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="hover:text-[#51d2c1] transition-colors"
-                              title={`${link?.platform && typeof link.platform === "string" && link.platform.length > 0 ? link.platform.charAt(0).toUpperCase() + link.platform.slice(1) : "Link"}`}
-                            >
-                              {link?.platform === "twitter" && (
-                                <img src="/icons/twitter-x-24.png" alt="Twitter" className="h-3 w-3" />
-                              )}
-                              {link?.platform === "telegram" && (
-                                <img src="/icons/telegram-24.png" alt="Telegram" className="h-4 w-4" />
-                              )}
-                              {link?.platform === "discord" && (
-                                <img src="/icons/discord-24.png" alt="Discord" className="h-4 w-4" />
-                              )}
-                              {link?.platform === "website" && (
-                                <img src="/icons/geography-24.png" alt="Website" className="h-4 w-4" />
-                              )}
-                            </a>
-                          ))
-                        ) : (
-                          <span className="opacity-60">—</span>
-                        )
-                      })()}
+                      {/* Right: Social Links */}
+                      <div className="text-xs text-[#868d8f] flex items-center gap-2">
+                        {(() => {
+                          // Combine social links and websites
+                          const allLinks = [
+                            ...(token.socials || []).map((social: any) => ({
+                              url: social.url,
+                              platform: social.platform,
+                              type: "social",
+                            })),
+                            ...(token.websites || []).map((website: any) => ({
+                              url: website.url,
+                              platform: "website",
+                              type: "website",
+                            })),
+                          ]
+
+                          return allLinks.length > 0 ? (
+                            allLinks.slice(0, 3).map((link: any, index: number) => (
+                              <a
+                                key={index}
+                                href={link.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-[#51d2c1] transition-colors"
+                                title={`${link?.platform && typeof link.platform === "string" && link.platform.length > 0 ? link.platform.charAt(0).toUpperCase() + link.platform.slice(1) : "Link"}`}
+                              >
+                                {link?.platform === "twitter" && (
+                                  <img src="/icons/twitter-x-24.png" alt="Twitter" className="h-3 w-3" />
+                                )}
+                                {link?.platform === "telegram" && (
+                                  <img src="/icons/telegram-24.png" alt="Telegram" className="h-4 w-4" />
+                                )}
+                                {link?.platform === "discord" && (
+                                  <img src="/icons/discord-24.png" alt="Discord" className="h-4 w-4" />
+                                )}
+                                {link?.platform === "website" && (
+                                  <img src="/icons/geography-24.png" alt="Website" className="h-4 w-4" />
+                                )}
+                              </a>
+                            ))
+                          ) : (
+                            <span className="opacity-60">—</span>
+                          )
+                        })()}
+                      </div>
                     </div>
 
-                    {/* Right: Metrics */}
-                    <div className="flex items-center gap-4 text-[10px] text-[#868d8f]">
-                      <span>VOL {formatTVL(token.volume_24h)}</span>
-                      <span>MCAP {formatTVL(token.market_cap)}</span>
+                    {/* Bottom row: Key Metrics */}
+                    <div className="flex items-center justify-between text-[10px] text-[#868d8f]">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-[#2d5a4f]/50 px-2 py-0.5 rounded-full">
+                          VOL {formatTVL(token.volume_24h)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-[#2d5a4f]/50 px-2 py-0.5 rounded-full">
+                          MCAP {formatTVL(token.market_cap)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
