@@ -8,6 +8,7 @@ interface RevenueData {
   annualized_revenue: number
   last_updated: string
   latest_day?: string
+  previous_day?: string
   error?: string
 }
 
@@ -38,6 +39,8 @@ export function useRevenueData() {
             daily_change: result.daily_change || 0,
             annualized_revenue: result.annualized_revenue || 0,
             last_updated: result.last_updated || new Date().toISOString(),
+            latest_day: result.latest_day,
+            previous_day: result.previous_day,
             error: result.error,
           })
         } else {

@@ -6,13 +6,13 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 export async function GET() {
   try {
     // Get all revenue data ordered by date
-    const { data, error } = await supabase.from("daily_revenue").select("*").order("day", { ascending: true })
+    const { data, error } = await supabase.from("daily_revenue").select("*").order("day", { ascending: false })
 
     if (error) {
       console.error("Supabase error:", error)
       return NextResponse.json(
         {
-          error: "Failed to fetch revenue data from database. Please sync first using POST /api/revenue-sync",
+          error: "Failed to fetch revenue data from database. Please sync first using POST /api/manual-revenue-sync",
         },
         { status: 500 },
       )
@@ -24,7 +24,7 @@ export async function GET() {
         daily_change: 0,
         annualized_revenue: 0,
         last_updated: new Date().toISOString(),
-        error: "No revenue data found. Please sync first using POST /api/revenue-sync",
+        error: "No revenue data found. Please sync first using POST /api/manual-revenue-sync",
       })
     }
 
@@ -85,5 +85,6 @@ function processRevenueData(rows: any[]) {
     last_updated: new Date().toISOString(),
     latest_day: latestRecord.day,
     previous_day: previousRecord ? previousRecord.day : null,
+    data_source: latestRecord.query_id === 999999 ? "DeFiLlama" : "Dune",
   }
 }

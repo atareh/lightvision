@@ -23,6 +23,14 @@
     {
       "path": "/api/cron/poll-dune-results",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/hyperliquid-sync-revenue",
+      "schedule": "0 10,22 * * *"
+    },
+    {
+      "path": "/api/cron/hyperevm-sync-llama",
+      "schedule": "0 10,22 * * *"
     }
   ]
 }
