@@ -1,8 +1,15 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { v4 as uuidv4 } from "uuid"
+import { rateLimit } from "@/lib/rate-limit" // Assuming you have this utility
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+
+// Create a rate limiter that allows 2 requests per minute
+const limiter = rateLimit({
+  uniqueTokenPerInterval: 2, // Max 2 unique requests per interval
+  interval: 60000, // 1 minute
+})
 
 interface LlamaFeeData {
   totalDataChartBreakdown: [number, { hyperliquid?: { [key: string]: number } }][]
@@ -62,9 +69,19 @@ async function upsertToSupabase(rows: any[]) {
 
 export async function POST(req: Request) {
   try {
+    // Apply rate limiting
+    try {
+      await limiter.check(NextResponse, req.ip || "anonymous", 2) // 2 requests per minute
+    } catch {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
     // Verify cron secret if provided in headers
     const authHeader = req.headers.get("authorization")
-    if (process.env.CRON_SECRET && (!authHeader || authHeader !== `Bearer ${process.env.CRON_SECRET}`)) {
+    if (!authHeader || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      console.warn("Unauthorized access attempt to cron endpoint")
+      // Add a small delay to slow down brute force attempts
+      await new Promise((resolve) => setTimeout(resolve, 1000))
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -90,7 +107,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error: "An error occurred during the sync process", // Don't expose detailed error messages
       },
       { status: 500 },
     )

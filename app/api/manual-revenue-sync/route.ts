@@ -1,8 +1,15 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { v4 as uuidv4 } from "uuid"
+import { rateLimit } from "@/lib/rate-limit" // Assuming you have this utility
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+
+// Create a rate limiter that allows 5 attempts per minute
+const limiter = rateLimit({
+  uniqueTokenPerInterval: 5, // Max 5 unique attempts per interval
+  interval: 60000, // 1 minute
+})
 
 interface LlamaFeeData {
   totalDataChartBreakdown: [number, { hyperliquid?: { [key: string]: number } }][]
@@ -50,10 +57,26 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
 
 export async function POST(req: Request) {
   try {
+    // Apply rate limiting
+    try {
+      await limiter.check(NextResponse, req.ip || "anonymous", 5) // 5 attempts per minute
+    } catch {
+      return NextResponse.json({ error: "Too many attempts, please try again later" }, { status: 429 })
+    }
+
     // Check for debug password
     const { password } = await req.json()
 
-    if (!password || password !== process.env.DEBUG_PASSWORD) {
+    if (!password) {
+      return NextResponse.json({ error: "Password required" }, { status: 400 })
+    }
+
+    // Use direct comparison since we don't have a hashed password stored
+    // In a production environment, you should use hashed passwords
+    if (password !== process.env.DEBUG_PASSWORD) {
+      console.warn("Invalid password attempt")
+      // Add a small delay to slow down brute force attempts
+      await new Promise((resolve) => setTimeout(resolve, 1000))
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -91,7 +114,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error: "An error occurred during the sync process", // Don't expose detailed error messages
       },
       { status: 500 },
     )

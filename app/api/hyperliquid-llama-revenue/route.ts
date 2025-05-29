@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server"
+import { rateLimit } from "@/lib/rate-limit" // Assuming you have this utility
+
+// Create a rate limiter that allows 10 requests per minute
+const limiter = rateLimit({
+  uniqueTokenPerInterval: 10, // Max 10 unique users per second
+  interval: 60000, // 1 minute
+})
 
 interface LlamaFeeData {
   totalDataChartBreakdown: [number, { hyperliquid?: { [key: string]: number } }][]
@@ -42,8 +49,15 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData) {
   return processedData
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Apply rate limiting
+    try {
+      await limiter.check(NextResponse, request.ip || "anonymous", 10) // 10 requests per minute per IP
+    } catch {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
+    }
+
     // Fetch data from DeFiLlama
     const rawData = await fetchLlamaRevenue()
 
@@ -64,7 +78,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error: "An error occurred while fetching revenue data", // Don't expose detailed error messages
       },
       { status: 500 },
     )

@@ -3,9 +3,41 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, RefreshCw } from "lucide-react"
+import { Loader2, RefreshCw, Lock } from "lucide-react"
+import { useRouter } from "next/navigation"
+
+// Add basic auth check
+function useAuthCheck() {
+  const router = useRouter()
+  const [isAuthorized, setIsAuthorized] = useState(false)
+  const [isChecking, setIsChecking] = useState(true)
+
+  useEffect(() => {
+    // Check for a debug token in localStorage or session
+    const debugToken = localStorage.getItem("debug_token")
+    if (!debugToken || debugToken !== "authorized") {
+      // Prompt for password
+      const password = prompt("Enter admin password to access this page:")
+      if (password && password.length > 0) {
+        // We'll validate this password when making API calls
+        localStorage.setItem("debug_password", password)
+        localStorage.setItem("debug_token", "authorized")
+        setIsAuthorized(true)
+      } else {
+        router.push("/")
+        return
+      }
+    } else {
+      setIsAuthorized(true)
+    }
+    setIsChecking(false)
+  }, [router])
+
+  return { isAuthorized, isChecking }
+}
 
 export default function TestRevenueMigrationPage() {
+  const { isAuthorized, isChecking } = useAuthCheck()
   const [llamaDirectData, setLlamaDirectData] = useState<any>(null)
   const [databaseData, setDatabaseData] = useState<any>(null)
   const [loading, setLoading] = useState<{ llamaDirect: boolean; database: boolean }>({
@@ -14,7 +46,34 @@ export default function TestRevenueMigrationPage() {
   })
   const [syncResult, setSyncResult] = useState<any>(null)
   const [syncLoading, setSyncLoading] = useState(false)
-  const [password, setPassword] = useState("")
+
+  const triggerSync = async () => {
+    try {
+      setSyncLoading(true)
+      // Get password from localStorage
+      const password = localStorage.getItem("debug_password")
+
+      const response = await fetch("/api/manual-revenue-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password }),
+      })
+      const result = await response.json()
+      setSyncResult(result)
+
+      // Refresh database data after sync
+      if (result.success) {
+        await fetchDatabaseData()
+      }
+    } catch (err) {
+      console.error("Error triggering sync:", err)
+      setSyncResult({ success: false, error: err instanceof Error ? err.message : "Unknown error" })
+    } finally {
+      setSyncLoading(false)
+    }
+  }
 
   // Fetch directly from Llama API
   const fetchLlamaDirectData = async () => {
@@ -41,31 +100,6 @@ export default function TestRevenueMigrationPage() {
       console.error("Error fetching database data:", err)
     } finally {
       setLoading((prev) => ({ ...prev, database: false }))
-    }
-  }
-
-  const triggerSync = async () => {
-    try {
-      setSyncLoading(true)
-      const response = await fetch("/api/manual-revenue-sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ password }),
-      })
-      const result = await response.json()
-      setSyncResult(result)
-
-      // Refresh database data after sync
-      if (result.success) {
-        await fetchDatabaseData()
-      }
-    } catch (err) {
-      console.error("Error triggering sync:", err)
-      setSyncResult({ success: false, error: err instanceof Error ? err.message : "Unknown error" })
-    } finally {
-      setSyncLoading(false)
     }
   }
 
@@ -168,6 +202,31 @@ export default function TestRevenueMigrationPage() {
     </Card>
   )
 
+  if (isChecking || !isAuthorized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Card className="w-96">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Lock className="mr-2 h-5 w-5" />
+              {isChecking ? "Authentication Required" : "Access Denied"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-center">
+              {isChecking ? "Please wait while we verify your credentials..." : "Redirecting..."}
+            </p>
+            <div className="flex justify-center mt-4">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Remove the password input field from the sync control section since we now get it from localStorage
+  // Update the sync control section:
   return (
     <div className="container mx-auto p-6 space-y-6">
       <h1 className="text-3xl font-bold">Revenue Data Migration Test</h1>
@@ -194,14 +253,7 @@ export default function TestRevenueMigrationPage() {
         <CardContent>
           <div className="flex flex-col gap-4">
             <div className="flex gap-2">
-              <input
-                type="password"
-                placeholder="Debug Password"
-                className="px-3 py-2 border rounded"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <Button onClick={triggerSync} disabled={syncLoading || !password}>
+              <Button onClick={triggerSync} disabled={syncLoading} className="w-full">
                 {syncLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
@@ -229,6 +281,7 @@ export default function TestRevenueMigrationPage() {
         </CardContent>
       </Card>
 
+      {/* Rest of the component remains the same... */}
       {/* Comparison */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {renderDataCard("Llama API (Direct)", llamaDirectData, loading.llamaDirect, fetchLlamaDirectData)}

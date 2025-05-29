@@ -195,17 +195,12 @@ export default function HeroMetrics() {
             {/* Body section with white top border */}
             <CardContent className="bg-[#0f1a1f] px-3 sm:px-4 py-3 border-0">
               {metric.isLoading ? (
-                <>
-                  {/* Mobile loading - only main value */}
-                  <div className="block sm:hidden animate-pulse">
-                    <div className="h-8 bg-[#2d5a4f] rounded w-24"></div>
-                  </div>
-                  {/* Desktop loading - main value + subtext */}
-                  <div className="hidden sm:block animate-pulse flex items-center justify-between">
-                    <div className="h-8 bg-[#2d5a4f] rounded w-24"></div>
-                    <div className="h-4 bg-[#2d5a4f] rounded w-16"></div>
-                  </div>
-                </>
+                <div className="flex items-baseline justify-between">
+                  <div className="animate-pulse h-8 bg-[#2d5a4f] rounded w-24"></div>
+                  {metric.change && (
+                    <div className="hidden sm:inline animate-pulse h-4 bg-[#2d5a4f] rounded w-16"></div>
+                  )}
+                </div>
               ) : (
                 <div className="flex items-baseline justify-between">
                   <p className="text-2xl sm:text-3xl font-bold text-white font-teodor">{metric.value}</p>
