@@ -26,7 +26,8 @@ export function useDuneData() {
         setLoading(true)
         setError(null)
 
-        const response = await fetch("/api/dune-data")
+        // Add cache-busting parameter to ensure fresh data
+        const response = await fetch(`/api/dune-data?_t=${Date.now()}`)
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: Failed to fetch Dune data`)
@@ -78,8 +79,8 @@ export function useDuneData() {
 
     fetchData()
 
-    // Refresh data every 30 minutes
-    const interval = setInterval(fetchData, 30 * 60 * 1000)
+    // Refresh data every 5 minutes instead of 30 minutes for more frequent updates
+    const interval = setInterval(fetchData, 2 * 60 * 1000)
 
     return () => clearInterval(interval)
   }, [])

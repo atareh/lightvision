@@ -31,6 +31,7 @@ export async function GET() {
         current_tvl: 0,
         daily_change: 0,
         protocols: [],
+        historical_data: [],
         last_updated: new Date().toISOString(),
         error: "No HyperEVM data found. Please sync first using POST /api/cron/hyperevm-sync-llama",
       })
@@ -45,7 +46,7 @@ export async function GET() {
       console.log(`Day ${day}: ${protocolsForDay.length} protocols`)
     }
 
-    // Process the data to calculate metrics
+    // Process the data to calculate metrics AND return historical data
     const processedData = processHyperEVMData(data)
 
     return NextResponse.json(processedData)
@@ -60,12 +61,15 @@ export async function GET() {
   }
 }
 
+// Update the processHyperEVMData function to properly structure historical data
+
 function processHyperEVMData(rows: any[]) {
   if (!rows || rows.length === 0) {
     return {
       current_tvl: 0,
       daily_change: 0,
       protocols: [],
+      historical_data: [],
       last_updated: new Date().toISOString(),
     }
   }
@@ -75,19 +79,24 @@ function processHyperEVMData(rows: any[]) {
     const day = row.day
     if (!acc[day]) {
       acc[day] = {
-        total_daily_tvl: row.total_daily_tvl,
-        protocols: [],
+        date: day,
+        total: 0,
+        protocols: {},
       }
     }
-    acc[day].protocols.push({
-      name: row.protocol_name,
-      tvl: row.daily_tvl,
-    })
+
+    // Add this protocol's TVL to the day's data
+    acc[day].protocols[row.protocol_name] = row.daily_tvl || 0
+
+    // Update total TVL for the day (we'll recalculate this to ensure accuracy)
+    acc[day].total += row.daily_tvl || 0
+
     return acc
   }, {})
 
-  // Get sorted days (most recent first)
-  const sortedDays = Object.keys(dataByDay).sort().reverse()
+  // Get sorted days (most recent first for metrics, chronological for chart)
+  const sortedDays = Object.keys(dataByDay).sort()
+  const reverseSortedDays = [...sortedDays].reverse()
 
   console.log(`Processed days: ${sortedDays.join(", ")}`)
 
@@ -96,44 +105,56 @@ function processHyperEVMData(rows: any[]) {
       current_tvl: 0,
       daily_change: 0,
       protocols: [],
+      historical_data: [],
       last_updated: new Date().toISOString(),
     }
   }
 
-  const latestDay = sortedDays[0]
-  const previousDay = sortedDays.length > 1 ? sortedDays[1] : null
+  const latestDay = reverseSortedDays[0]
+  const previousDay = reverseSortedDays.length > 1 ? reverseSortedDays[1] : null
 
   const currentData = dataByDay[latestDay]
   const previousData = previousDay ? dataByDay[previousDay] : null
 
-  console.log(`Latest day: ${latestDay}, protocols: ${currentData.protocols.length}`)
-  console.log(`Previous day: ${previousDay}, protocols: ${previousData?.protocols.length || 0}`)
+  console.log(`Latest day: ${latestDay}, protocols: ${Object.keys(currentData.protocols).length}`)
+  console.log(
+    `Previous day: ${previousDay}, protocols: ${previousData ? Object.keys(previousData.protocols).length : 0}`,
+  )
 
   // Calculate current TVL (sum of all protocols for latest day)
-  const currentTVL = currentData.protocols.reduce((sum, protocol) => sum + (protocol.tvl || 0), 0)
+  const currentTVL = currentData.total
 
   // Calculate daily change using two most recent complete days
   let dailyChange = 0
   if (previousData) {
-    const previousTVL = previousData.protocols.reduce((sum, protocol) => sum + (protocol.tvl || 0), 0)
-    dailyChange = currentTVL - previousTVL
+    dailyChange = currentTVL - previousData.total
   }
 
-  const previousTVL = previousData ? previousData.protocols.reduce((sum, protocol) => sum + (protocol.tvl || 0), 0) : 0
+  // Format protocols for the API response
+  const protocolsList = Object.entries(currentData.protocols)
+    .map(([name, tvl]) => ({
+      name,
+      tvl,
+    }))
+    .sort((a, b) => (b.tvl as number) - (a.tvl as number))
+
+  // Create historical data array (chronological order)
+  const historicalData = sortedDays.map((day) => dataByDay[day])
 
   return {
     current_tvl: currentTVL,
     daily_change: dailyChange,
-    previous_day_tvl: previousTVL,
-    protocols: currentData.protocols.sort((a, b) => (b.tvl || 0) - (a.tvl || 0)), // Sort by TVL descending
+    previous_day_tvl: previousData ? previousData.total : 0,
+    protocols: protocolsList,
+    historical_data: historicalData,
     last_updated: new Date().toISOString(),
     latest_day: latestDay,
     previous_day: previousDay,
-    data_source: "llama_api", // Add this to indicate the data source has changed
+    data_source: "llama_api",
     debug_info: {
       total_records: rows.length,
       unique_days: sortedDays.length,
-      protocols_latest_day: currentData.protocols.length,
+      protocols_latest_day: Object.keys(currentData.protocols).length,
     },
   }
 }

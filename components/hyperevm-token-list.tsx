@@ -12,6 +12,9 @@ import { useHyperEVMData } from "@/hooks/use-hyperevm-data"
 import { useTokenData } from "@/hooks/use-token-data"
 import { ArrowUpDown, Copy, ChevronLeft, ChevronRight, Loader2, ExternalLink, Search, X } from "lucide-react"
 import { MouseToast } from "@/components/ui/mouse-toast"
+import { useMemesMetrics } from "@/hooks/use-memes-metrics"
+import HyperEVMChart from "@/components/hyperevm-chart"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const TOKENS_PER_PAGE = 10
 
@@ -60,6 +63,8 @@ export default function HyperEVMTokenList() {
     clearSearch,
     allTokensCache,
   } = useTokenData()
+
+  const { data: memesMetrics, loading: memesLoading, error: memesError } = useMemesMetrics()
 
   // Intersection Observer for sticky behavior
   useEffect(() => {
@@ -223,7 +228,7 @@ export default function HyperEVMTokenList() {
     } catch (err) {
       console.error("Failed to copy:", err)
       setClickPosition({ x: event.clientX, y: event.clientY })
-      setToastMessage("Failed to copy")
+      setToastMessage("Failed tocopy")
       setShowToast(true)
     }
   }
@@ -281,101 +286,197 @@ export default function HyperEVMTokenList() {
   const startIndex = (currentPage - 1) * TOKENS_PER_PAGE
   const endIndex = Math.min(startIndex + TOKENS_PER_PAGE, totalTokens)
 
+  // Update the HyperEVMChart component to properly handle the data structure
+
   return (
     <div className="space-y-6">
       {/* HyperEVM Metrics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        <Card className="bg-[#0f1a1f] rounded-[10px] shadow-xl drop-shadow-lg overflow-hidden border-0">
-          <div className="bg-[#0f1a1f] px-4 py-2">
-            <h3 className="text-[#868d8f] text-xs sm:text-sm font-medium font-sans">HyperEVM TVL</h3>
-          </div>
-          <CardContent className="bg-[#0f1a1f] px-4 py-3">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* HyperEVM TVL Chart - Full Height on Left */}
+        <Card className="lg:col-span-3 h-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden">
+          <CardContent className="px-4 py-2 h-full flex flex-col justify-start">
             {hyperEVMLoading ? (
-              <div className="animate-pulse flex items-center justify-between">
-                <div className="h-8 bg-[#2d5a4f] rounded w-24"></div>
-                <div className="h-4 bg-[#2d5a4f] rounded w-16"></div>
+              <div className="flex flex-col flex-1">
+                <div className="flex flex-col justify-start space-y-2">
+                  <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
+                  <div className="flex items-center h-4">
+                    <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
+                  </div>
+                </div>
+                <div className="animate-pulse flex-1 bg-[#2d5a4f] rounded w-full mt-4"></div>
               </div>
             ) : (
-              <div className="flex items-baseline justify-between">
-                <p className="text-2xl sm:text-3xl font-bold text-white font-teodor font-mono">
-                  {hyperEVMData && hyperEVMData.current_tvl > 0
-                    ? formatTVL(hyperEVMData.current_tvl)
-                    : hyperEVMError && hyperEVMError.includes("sync first")
-                      ? "Sync Needed"
+              <div className="flex flex-col justify-start flex-1">
+                {/* SVG Chart - Now fills all available space */}
+                <div className="flex-1 mt-4">
+                  <HyperEVMChart />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Right side metrics - 4 cards stacked */}
+        <div className="lg:col-span-1 grid grid-cols-2 gap-4 md:grid-cols-4 lg:flex lg:flex-col lg:justify-between lg:w-[200px] lg:h-[528px] lg:gap-0">
+          {/* HyperEVM TVL Value Card */}
+          <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] relative before:absolute before:inset-0.5 before:rounded-lg before:border before:border-[#20a67d] before:pointer-events-none">
+            <div className="px-4 py-3 flex items-center justify-between">
+              <h3 className="text-[#a0a8aa] text-xs font-medium flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-[#20a67d]"></div>
+                HyperEVM TVL
+              </h3>
+            </div>
+            <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
+              {hyperEVMLoading ? (
+                <div className="flex flex-col justify-start space-y-2">
+                  <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
+                  <div className="flex items-center h-4">
+                    <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col justify-start space-y-2">
+                  <p className="text-2xl font-bold text-white font-teodor tracking-tight">
+                    {hyperEVMData && hyperEVMData.current_tvl > 0
+                      ? formatTVL(hyperEVMData.current_tvl)
+                      : hyperEVMError && hyperEVMError.includes("sync first")
+                        ? "Sync Needed"
+                        : "TO DO"}
+                  </p>
+                  <div className="flex items-center h-4">
+                    {hyperEVMData && hyperEVMData.daily_change !== 0 && (
+                      <span
+                        className={`text-xs font-medium flex items-center gap-1 ${hyperEVMData.daily_change >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"}`}
+                        style={{ fontFamily: "JetBrains Mono, monospace" }}
+                      >
+                        {hyperEVMData.daily_change >= 0 ? "▲ " : "▼ "}
+                        {formatTVL(Math.abs(hyperEVMData.daily_change))} 24h
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] cursor-pointer">
+                  <div className="px-4 py-3 flex items-center justify-between">
+                    <h3 className="text-[#a0a8aa] text-xs font-medium">
+                      <span className="sm:hidden">Altcoin Mkt Cap</span>
+                      <span className="hidden sm:inline">Altcoin Market Cap</span>
+                    </h3>
+                  </div>
+                  <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
+                    {tokenLoading ? (
+                      <div className="flex flex-col justify-start space-y-2">
+                        <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
+                        <div className="flex items-center h-4">
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col justify-start space-y-2">
+                        <p className="text-2xl font-bold text-white font-teodor tracking-tight">
+                          {tokenData?.totalMarketCap ? formatTVL(tokenData.totalMarketCap) : "TO DO"}
+                        </p>
+                        <div className="flex items-center h-4">
+                          {memesMetrics?.marketCapChange !== null && memesMetrics?.marketCapChange !== undefined && (
+                            <span
+                              className={`text-xs font-medium flex items-center gap-1 ${memesMetrics.marketCapChange >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"}`}
+                              style={{ fontFamily: "JetBrains Mono, monospace" }}
+                            >
+                              {memesMetrics.marketCapChange >= 0 ? "▲ " : "▼ "}
+                              {formatTVL(Math.abs(memesMetrics.marketCapChange))} 24h
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Coming Soon!</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] cursor-pointer">
+                  <div className="px-4 py-3 flex items-center justify-between">
+                    <h3 className="text-[#a0a8aa] text-xs font-medium">
+                      <span className="sm:hidden">24h Volume</span>
+                      <span className="hidden sm:inline">24h Volume</span>
+                    </h3>
+                  </div>
+                  <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
+                    {tokenLoading ? (
+                      <div className="flex flex-col justify-start space-y-2">
+                        <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
+                        <div className="flex items-center h-4">
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col justify-start space-y-2">
+                        <p className="text-2xl font-bold text-white font-teodor tracking-tight">
+                          {tokenData?.totalVolume24h ? formatTVL(tokenData.totalVolume24h) : "TO DO"}
+                        </p>
+                        <div className="flex items-center h-4">
+                          {memesMetrics?.volumeChange !== null && memesMetrics?.volumeChange !== undefined && (
+                            <span
+                              className={`text-xs font-medium flex items-center gap-1 ${memesMetrics.volumeChange >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"}`}
+                              style={{ fontFamily: "JetBrains Mono, monospace" }}
+                            >
+                              {memesMetrics.volumeChange >= 0 ? "▲ " : "▼ "}
+                              {formatTVL(Math.abs(memesMetrics.volumeChange))} 24h
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Coming Soon!</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50]">
+            <div className="px-4 py-3 flex items-center justify-between">
+              <h3 className="text-[#a0a8aa] text-xs font-medium">
+                <span className="sm:hidden">Tracked Tokens</span>
+                <span className="hidden sm:inline">Tracked Tokens</span>
+              </h3>
+            </div>
+            <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
+              {tokenLoading ? (
+                <div className="flex flex-col justify-start space-y-2">
+                  <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
+                  <div className="flex items-center h-4">
+                    <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col justify-start space-y-2">
+                  <p className="text-2xl font-bold text-white font-teodor tracking-tight">
+                    {tokenData?.filteredCount !== undefined
+                      ? allTokensCache?.length || tokenData.totalCount || 0
                       : "TO DO"}
-                </p>
-                {hyperEVMData && hyperEVMData.daily_change !== 0 && (
-                  <span
-                    className={`text-xs font-medium font-sans hidden sm:block ${hyperEVMData.daily_change >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"}`}
-                  >
-                    {hyperEVMData.daily_change >= 0 ? "+" : ""}
-                    {formatTVL(Math.abs(hyperEVMData.daily_change))} 24h
-                  </span>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-[#0f1a1f] rounded-[10px] shadow-xl drop-shadow-lg overflow-hidden border-0">
-          <div className="bg-[#0f1a1f] px-4 py-2">
-            <h3 className="text-[#868d8f] text-xs sm:text-sm font-medium font-sans">Altcoin Market Cap</h3>
-          </div>
-          <CardContent className="bg-[#0f1a1f] px-4 py-3">
-            {tokenLoading ? (
-              <div className="animate-pulse flex items-center justify-between">
-                <div className="h-8 bg-[#2d5a4f] rounded w-24"></div>
-              </div>
-            ) : (
-              <div className="flex items-baseline justify-between">
-                <p className="text-2xl sm:text-3xl font-bold text-white font-teodor font-mono">
-                  {tokenData?.totalMarketCap ? formatTVL(tokenData.totalMarketCap) : "TO DO"}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-[#0f1a1f] rounded-[10px] shadow-xl drop-shadow-lg overflow-hidden border-0">
-          <div className="bg-[#0f1a1f] px-4 py-2">
-            <h3 className="text-[#868d8f] text-xs sm:text-sm font-medium font-sans">24h Volume</h3>
-          </div>
-          <CardContent className="bg-[#0f1a1f] px-4 py-3">
-            {tokenLoading ? (
-              <div className="animate-pulse flex items-center justify-between">
-                <div className="h-8 bg-[#2d5a4f] rounded w-24"></div>
-              </div>
-            ) : (
-              <div className="flex items-baseline justify-between">
-                <p className="text-2xl sm:text-3xl font-bold text-white font-teodor font-mono">
-                  {tokenData?.totalVolume24h ? formatTVL(tokenData.totalVolume24h) : "TO DO"}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-[#0f1a1f] rounded-[10px] shadow-xl drop-shadow-lg overflow-hidden border-0">
-          <div className="bg-[#0f1a1f] px-4 py-2">
-            <h3 className="text-[#868d8f] text-xs sm:text-sm font-medium font-sans">Tracked Tokens</h3>
-          </div>
-          <CardContent className="bg-[#0f1a1f] px-4 py-3">
-            {tokenLoading ? (
-              <div className="animate-pulse flex items-center justify-between">
-                <div className="h-8 bg-[#2d5a4f] rounded w-24"></div>
-              </div>
-            ) : (
-              <div className="flex items-baseline justify-between">
-                <p className="text-2xl sm:text-3xl font-bold text-white font-teodor font-mono">
-                  {tokenData?.filteredCount !== undefined
-                    ? // Show total tokens from cache, not filtered count
-                      allTokensCache?.length || tokenData.totalCount || 0
-                    : "TO DO"}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  </p>
+                  <div className="flex items-center h-4"></div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Token List Table */}
@@ -476,32 +577,41 @@ export default function HyperEVMTokenList() {
                             <div>
                               <div className="h-4 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded mb-1"></div>
                               <div className="h-3 w-20 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                              <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell className="w-[100px]">
                           <div className="h-7 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded-full"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[100px]">
                           <div className="h-4 w-20 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[150px]">
                           <div className="h-4 w-24 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[80px]">
                           <div className="h-6 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded-full"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[80px]">
                           <div className="h-6 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded-full"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[140px]">
                           <div className="h-4 w-20 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[140px]">
                           <div className="h-4 w-20 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                         <TableCell className="w-[80px]">
                           <div className="h-4 w-16 bg-gradient-to-r from-[#2d5a4f] via-[#51d2c1]/30 to-[#2d5a4f] bg-[length:200%_100%] animate-[shimmer_2s_infinite] rounded"></div>
+                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16 mt-2"></div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -533,7 +643,7 @@ export default function HyperEVMTokenList() {
                     </div>
 
                     {/* Row 2: Contract + Metrics */}
-                    {/* Row 2: Contract Address + Metrics - Improved Mobile Layout */}
+                    {/* Row 2: Contract Address + Social Links */}
                     <div className="flex flex-col space-y-2 mb-3">
                       {/* Top row: Contract Address + Social Links */}
                       <div className="flex items-center justify-between">
@@ -922,8 +1032,6 @@ export default function HyperEVMTokenList() {
             </div>
           )}
 
-          {/* Mobile Layout - Compact Rows */}
-
           {/* Mobile Layout - Clean Cards */}
           <div className="block md:hidden">
             <div className="space-y-3">
@@ -932,59 +1040,69 @@ export default function HyperEVMTokenList() {
                   key={token.id}
                   className={`bg-[#0f1a1f] border border-[#2d5a4f] rounded-lg p-4 ${getRowAnimationClasses(token.id)}`}
                 >
-                  {/* Row 1: Token Info + Price + Performance */}
-                  <div className="flex items-center justify-between mb-3">
-                    {/* Left: Token Info */}
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {/* Token Icon with Fallback */}
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-[#2d5a4f] border border-[#51d2c1]/30 overflow-hidden flex-shrink-0">
-                        {token.image_url && token.image_url.trim() !== "" ? (
-                          <img
-                            src={token.image_url || "/placeholder.svg"}
-                            alt={token.symbol || "Token"}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              const img = e.currentTarget as HTMLImageElement
-                              img.style.display = "none"
-                              const placeholder = img.nextElementSibling as HTMLElement
-                              if (placeholder) placeholder.style.display = "flex"
-                            }}
-                          />
-                        ) : null}
-                        <div
-                          className={`w-full h-full flex items-center justify-center text-sm font-bold text-[#51d2c1] ${token.image_url && token.image_url.trim() !== "" ? "hidden" : "flex"}`}
-                          style={{ display: token.image_url && token.image_url.trim() !== "" ? "none" : "flex" }}
-                        >
-                          {token?.symbol && typeof token.symbol === "string" && token.symbol.length > 0
-                            ? token.symbol.charAt(0).toUpperCase()
-                            : "?"}
-                        </div>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <a
-                          href={`https://dexscreener.com/hyperevm/${token.contract_address}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-white font-semibold text-base truncate hover:text-[#51d2c1] transition-colors flex items-center gap-2 group"
-                          title={token.symbol && typeof token.symbol === "string" ? token.symbol : "Unknown"}
-                        >
-                          <span className="truncate">{token.symbol || "Unknown"}</span>
-                          <ExternalLink className="h-3 w-3 opacity-60 group-hover:opacity-100 group-hover:text-[#51d2c1] transition-all flex-shrink-0" />
-                        </a>
+                  {/* Row 1: Token Info - Full Width for Name */}
+                  <div className="flex items-center gap-3 mb-2">
+                    {/* Token Icon with Fallback */}
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-[#2d5a4f] border border-[#51d2c1]/30 overflow-hidden flex-shrink-0">
+                      {token.image_url && token.image_url.trim() !== "" ? (
+                        <img
+                          src={token.image_url || "/placeholder.svg"}
+                          alt={token.symbol || "Token"}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const img = e.currentTarget as HTMLImageElement
+                            img.style.display = "none"
+                            const placeholder = img.nextElementSibling as HTMLElement
+                            if (placeholder) placeholder.style.display = "flex"
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className={`w-full h-full flex items-center justify-center text-sm font-bold text-[#51d2c1] ${token.image_url && token.image_url.trim() !== "" ? "hidden" : "flex"}`}
+                        style={{ display: token.image_url && token.image_url.trim() !== "" ? "none" : "flex" }}
+                      >
+                        {token?.symbol && typeof token.symbol === "string" && token.symbol.length > 0
+                          ? token.symbol.charAt(0).toUpperCase()
+                          : "?"}
                       </div>
                     </div>
-
-                    {/* Right: Price + Performance */}
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <div
-                        className={`text-white font-mono text-xs font-semibold truncate ${getCellAnimationClasses(token.id, "price_usd")}`}
-                        title={formatPrice(token.price_usd)}
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={`https://dexscreener.com/hyperevm/${token.contract_address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-white font-semibold text-lg hover:text-[#51d2c1] transition-colors flex items-center gap-2 group"
+                        title={token.symbol && typeof token.symbol === "string" ? token.symbol : "Unknown"}
                       >
-                        {formatPrice(token.price_usd)}
+                        <span className="break-words">{token.symbol || "Unknown"}</span>
+                        <ExternalLink className="h-4 w-4 opacity-60 group-hover:opacity-100 group-hover:text-[#51d2c1] transition-all flex-shrink-0" />
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Row 1.5: Price + Performance */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div
+                      className={`text-white font-mono text-sm font-semibold ${getCellAnimationClasses(token.id, "price_usd")}`}
+                      title={formatPrice(token.price_usd)}
+                    >
+                      {formatPrice(token.price_usd)}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${
+                          (token.price_change_30m || 0) >= 0
+                            ? "text-[#20a67d] bg-[#20a67d]/10"
+                            : "text-[#ed7188] bg-[#ed7188]/10"
+                        }`}
+                      >
+                        1H {formatPercentage(token.price_change_30m)}
                       </div>
                       <div
-                        className={`font-mono text-[10px] ${
-                          (token.price_change_24h || 0) >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"
+                        className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${
+                          (token.price_change_24h || 0) >= 0
+                            ? "text-[#20a67d] bg-[#20a67d]/10"
+                            : "text-[#ed7188] bg-[#ed7188]/10"
                         }`}
                       >
                         24H {formatPercentage(token.price_change_24h)}
@@ -992,7 +1110,6 @@ export default function HyperEVMTokenList() {
                     </div>
                   </div>
 
-                  {/* Row 2: Contract Address + Metrics */}
                   {/* Row 2: Contract Address + Metrics - Improved Mobile Layout */}
                   <div className="flex flex-col space-y-2 mb-3">
                     {/* Top row: Contract Address + Social Links */}
@@ -1133,6 +1250,7 @@ export default function HyperEVMTokenList() {
                 size="sm"
                 onClick={() => goToPage(currentPage - 1)}
                 disabled={currentPage === 1}
+                className="bg-[#2d5a4f] border-[#2d5a4f] text-white hover:bg-[#51d2c1] hover:text-black disabled:opacity-50 disabled:cursor-not-allowed rounded-md"
                 className="bg-[#2d5a4f] border-[#2d5a4f] text-white hover:bg-[#51d2c1] hover:text-black disabled:opacity-50 disabled:cursor-not-allowed rounded-md"
               >
                 <ChevronLeft className="h-4 w-4" />

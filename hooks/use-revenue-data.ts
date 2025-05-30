@@ -23,7 +23,7 @@ export function useRevenueData() {
         setLoading(true)
         setError(null)
 
-        const response = await fetch("/api/revenue-data")
+        const response = await fetch(`/api/revenue-data?_t=${Date.now()}`)
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: Failed to fetch revenue data`)
@@ -64,7 +64,13 @@ export function useRevenueData() {
     }
 
     fetchData()
-    // No auto-refresh interval - data is updated daily via cron job
+
+    // Add auto-refresh interval - refresh every 2 minutes
+    const interval = setInterval(fetchData, 2 * 60 * 1000)
+
+    return () => {
+      clearInterval(interval)
+    }
   }, [])
 
   return { data, loading, error }

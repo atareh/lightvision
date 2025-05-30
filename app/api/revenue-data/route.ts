@@ -3,9 +3,12 @@ import { NextResponse } from "next/server"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Get all revenue data ordered by date
+    const { searchParams } = new URL(request.url)
+    const period = searchParams.get("period")
+
+    // Get all revenue data ordered by date - KEEPING ORIGINAL ORDERING
     const { data, error } = await supabase.from("daily_revenue").select("*").order("day", { ascending: false })
 
     if (error) {
@@ -28,10 +31,62 @@ export async function GET() {
       })
     }
 
-    // Process the data to calculate metrics
+    // Process the data to calculate metrics - KEEPING ORIGINAL LOGIC
     const processedData = processRevenueData(data)
 
-    return NextResponse.json(processedData)
+    // If no period specified, return current data only
+    if (!period) {
+      return NextResponse.json(processedData)
+    }
+
+    // Calculate date range based on period
+    const now = new Date()
+    let daysBack = 7
+
+    switch (period.toLowerCase()) {
+      case "7d":
+        daysBack = 7
+        break
+      case "30d":
+        daysBack = 30
+        break
+      case "90d":
+        daysBack = 90
+        break
+      case "max":
+        daysBack = 365
+        break
+      default:
+        daysBack = 7
+    }
+
+    const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
+
+    // Filter historical data based on date range and sort ascending for cumulative calculation
+    const historicalData = data
+      .filter((item) => {
+        const itemDate = new Date(item.day)
+        return itemDate >= startDate
+      })
+      .sort((a, b) => new Date(a.day).getTime() - new Date(b.day).getTime())
+
+    // For revenue, we show actual daily values (not cumulative) since revenue is per-day
+    const historical_daily_revenue = historicalData.map((item) => ({
+      date: item.day,
+      value: item.revenue || 0,
+    }))
+
+    const historical_annualized_revenue = historicalData.map((item) => ({
+      date: item.day,
+      value: item.annualized_revenue || 0,
+    }))
+
+    // Return both current and historical data
+    return NextResponse.json({
+      ...processedData,
+      historical_daily_revenue,
+      historical_annualized_revenue,
+    })
   } catch (error) {
     console.error("API error:", error)
     return NextResponse.json(
@@ -43,6 +98,7 @@ export async function GET() {
   }
 }
 
+// KEEPING ORIGINAL PROCESSING FUNCTION
 function processRevenueData(rows: any[]) {
   if (!rows || rows.length === 0) {
     return {

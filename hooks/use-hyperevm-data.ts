@@ -27,7 +27,8 @@ export function useHyperEVMData() {
         setLoading(true)
         setError(null)
 
-        const response = await fetch("/api/hyperevm-tvl")
+        // Add cache-busting parameter
+        const response = await fetch(`/api/hyperevm-tvl?_t=${Date.now()}`)
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: Failed to fetch HyperEVM data`)
@@ -67,7 +68,11 @@ export function useHyperEVMData() {
     }
 
     fetchData()
-    // No auto-refresh interval - data is updated daily via cron job
+
+    // Add periodic refresh every 2 minutes
+    const interval = setInterval(fetchData, 2 * 60 * 1000)
+
+    return () => clearInterval(interval)
   }, [])
 
   return { data, loading, error }
