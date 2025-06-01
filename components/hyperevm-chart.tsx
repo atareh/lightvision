@@ -18,20 +18,33 @@ export default function HyperEVMChart() {
   const chartData = useMemo(() => {
     if (!hyperEVMData?.historical_data) return []
 
-    // Filter data based on selected time range
-    const now = new Date()
+    // Sort data chronologically first
+    const sortedData = [...hyperEVMData.historical_data].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    )
+
+    // For MAX, return all data
+    if (timeRange === "MAX") {
+      console.log(`Time range: MAX, returning all ${sortedData.length} data points`)
+      return sortedData
+    }
+
+    // For other ranges, count backwards from the latest available date
     let daysToShow = 7
     if (timeRange === "30D") daysToShow = 30
     if (timeRange === "90D") daysToShow = 90
-    if (timeRange === "MAX") daysToShow = hyperEVMData.historical_data.length
 
-    const cutoffDate = new Date(now)
-    cutoffDate.setDate(cutoffDate.getDate() - daysToShow + 1) // Add +1 to include today
+    // Take the last N days from available data
+    const filteredData = sortedData.slice(-daysToShow)
 
-    return hyperEVMData.historical_data.filter((day) => {
-      const dayDate = new Date(day.date)
-      return dayDate >= cutoffDate
-    })
+    console.log(`Time range: ${timeRange}, Days to show: ${daysToShow}`)
+    console.log(`Total available data points: ${sortedData.length}`)
+    console.log(`Filtered data points: ${filteredData.length}`)
+    console.log(
+      `Date range in filtered data: ${filteredData[0]?.date} to ${filteredData[filteredData.length - 1]?.date}`,
+    )
+
+    return filteredData
   }, [hyperEVMData, timeRange])
 
   // Generate colors for protocols

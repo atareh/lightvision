@@ -41,6 +41,15 @@ export default function Dashboard() {
                 {/* Desktop Navigation */}
                 <div className="hidden sm:flex items-center gap-4 h-full">
                   <a
+                    href="https://x.com/hypescreenerxyz"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-white hover:text-[#51d2c1] transition-colors font-sans text-sm"
+                  >
+                    Twitter
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                  <a
                     href="https://app.hyperliquid.xyz"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -81,6 +90,16 @@ export default function Dashboard() {
                     </SheetTrigger>
                     <SheetContent side="top" className="bg-[#0f1a1f] border-[#51d2c1]/20">
                       <div className="flex flex-col gap-4 mt-6 px-4 pb-6">
+                        <a
+                          href="https://x.com/hypescreenerxyz"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-white hover:text-[#51d2c1] transition-colors font-sans text-base"
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          Twitter
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
                         <a
                           href="https://app.hyperliquid.xyz"
                           target="_blank"
