@@ -7,12 +7,13 @@ export async function GET() {
   try {
     console.log("🔍 Starting tokens API request...")
 
-    // Get all enabled tokens with sufficient liquidity (exclude low_liquidity tokens)
+    // Get all enabled tokens with sufficient liquidity and volume
     const { data: tokens, error: tokensError } = await supabase
       .from("tokens")
       .select("*")
       .eq("enabled", true)
-      .eq("low_liquidity", false) // Only get tokens with sufficient liquidity
+      .eq("low_liquidity", false)
+      .eq("low_volume", false)
 
     if (tokensError) {
       console.error("❌ Tokens query error:", tokensError)
@@ -26,14 +27,14 @@ export async function GET() {
       )
     }
 
-    console.log(`📋 Found ${tokens?.length || 0} enabled tokens with sufficient liquidity`)
+    console.log(`📋 Found ${tokens?.length || 0} enabled tokens with sufficient liquidity and volume`)
 
     if (!tokens || tokens.length === 0) {
       return NextResponse.json({
         tokens: [],
         count: 0,
         last_updated: new Date().toISOString(),
-        message: "No tokens found with sufficient liquidity. Add some tokens first.",
+        message: "No tokens found with sufficient liquidity and volume. Add some tokens first.",
       })
     }
 
@@ -92,7 +93,7 @@ export async function GET() {
       }
     }
 
-    console.log(`✅ Successfully processed ${tokensWithMetrics.length} tokens with sufficient liquidity`)
+    console.log(`✅ Successfully processed ${tokensWithMetrics.length} tokens with sufficient liquidity and volume`)
     return formatTokenResponse(tokensWithMetrics)
   } catch (error) {
     console.error("❌ Unexpected API error:", error)
@@ -113,7 +114,7 @@ function formatTokenResponse(tokens: any[]) {
       tokens: [],
       count: 0,
       last_updated: new Date().toISOString(),
-      message: "No tokens found with sufficient liquidity. Add some tokens first.",
+      message: "No tokens found with sufficient liquidity and volume. Add some tokens first.",
     })
   }
 
@@ -140,6 +141,7 @@ function formatTokenResponse(tokens: any[]) {
     tokens: processedTokens,
     count: tokens.length,
     last_updated: lastUpdated.toISOString(),
-    liquidity_filtered: true, // Indicate that liquidity filtering is active
+    liquidity_filtered: true,
+    volume_filtered: true,
   })
 }

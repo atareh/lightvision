@@ -152,6 +152,32 @@ export default function HeroMetrics() {
     fetchHistoricalData()
   }, [timePeriod, graphDataFallback])
 
+  // Separate calculation for annualized revenue change to avoid affecting other metrics
+  const annualizedRevenueChange = useMemo(() => {
+    if (revenueLoading) return ""
+
+    const data = historicalData.annualizedRevenue
+    if (data.length >= 2) {
+      const today = data[data.length - 1]?.value
+      const yesterday = data[data.length - 2]?.value
+      if (typeof today === "number" && typeof yesterday === "number") {
+        const diff = today - yesterday
+        return `${diff >= 0 ? "▲" : "▼"} ${formatTVL(Math.abs(diff))} 24h`
+      }
+    }
+    return ""
+  }, [historicalData.annualizedRevenue, revenueLoading])
+
+  const annualizedRevenueIsPositive = useMemo(() => {
+    const data = historicalData.annualizedRevenue
+    if (data.length >= 2) {
+      const today = data[data.length - 1]?.value
+      const yesterday = data[data.length - 2]?.value
+      if (typeof today === "number" && typeof yesterday === "number") return today >= yesterday
+    }
+    return true
+  }, [historicalData.annualizedRevenue])
+
   const metricsConfig = useMemo(
     () => ({
       tvl: {
@@ -200,28 +226,8 @@ export default function HeroMetrics() {
         ) : (
           "TO DO"
         ),
-        change: (() => {
-          if (revenueLoading || loadingHistorical) return ""
-          const data = historicalData.annualizedRevenue
-          if (data.length >= 2) {
-            const today = data[data.length - 1]?.value
-            const yesterday = data[data.length - 2]?.value
-            if (typeof today === "number" && typeof yesterday === "number") {
-              const diff = today - yesterday
-              return `${diff >= 0 ? "▲" : "▼"} ${formatTVL(Math.abs(diff))} 24h`
-            }
-          }
-          return ""
-        })(),
-        isPositive: (() => {
-          const data = historicalData.annualizedRevenue
-          if (data.length >= 2) {
-            const today = data[data.length - 1]?.value
-            const yesterday = data[data.length - 2]?.value
-            if (typeof today === "number" && typeof yesterday === "number") return today >= yesterday
-          }
-          return true
-        })(),
+        change: annualizedRevenueChange,
+        isPositive: annualizedRevenueIsPositive,
         isLoading: revenueLoading || loadingHistorical,
         color: "#ff8c42",
         dataKey: "annualizedRevenue",
@@ -246,7 +252,15 @@ export default function HeroMetrics() {
         dataKey: "wallets",
       },
     }),
-    [duneData, revenueData, duneLoading, revenueLoading, historicalData, loadingHistorical],
+    [
+      duneData,
+      revenueData,
+      duneLoading,
+      revenueLoading,
+      annualizedRevenueChange,
+      annualizedRevenueIsPositive,
+      loadingHistorical,
+    ],
   )
 
   const currentMetricConfig = metricsConfig[activeMetric]

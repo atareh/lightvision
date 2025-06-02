@@ -130,6 +130,59 @@ export default function TestPage() {
   const [manualDuneTriggerLoading, setManualDuneTriggerLoading] = useState(false)
   const [manualDuneTriggerResult, setManualDuneTriggerResult] = useState<TestResult | null>(null)
 
+  const [tokenFilterCheckLoading, setTokenFilterCheckLoading] = useState(false)
+  const [tokenFilterCheckResult, setTokenFilterCheckResult] = useState<TestResult | null>(null)
+
+  const forceTokenFilterCheck = async () => {
+    if (!debugPassword) {
+      toast({ title: "Error", description: "Please enter the debug password.", variant: "destructive" })
+      return
+    }
+    setTokenFilterCheckLoading(true)
+    setTokenFilterCheckResult(null)
+    try {
+      const response = await fetch("/api/admin/force-token-filter-check", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-debug-password": debugPassword,
+        },
+      })
+      const resultData = await response.json()
+      setTokenFilterCheckResult({
+        success: response.ok,
+        message:
+          resultData.message ||
+          (response.ok ? "Token filter check completed successfully." : "Token filter check failed."),
+        timestamp: new Date().toISOString(),
+        result: resultData, // Store the full result for detailed view
+        error: resultData.error,
+      })
+      if (!response.ok && resultData.error) {
+        toast({ title: "API Error", description: resultData.error, variant: "destructive" })
+      } else if (!response.ok) {
+        toast({
+          title: "API Error",
+          description: resultData.message || "Token filter check failed.",
+          variant: "destructive",
+        })
+      } else {
+        toast({ title: "Success", description: "Token filter check completed." })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown network error."
+      setTokenFilterCheckResult({
+        success: false,
+        message: "Network error during token filter check",
+        timestamp: new Date().toISOString(),
+        error: errorMessage,
+      })
+      toast({ title: "Network Error", description: errorMessage, variant: "destructive" })
+    } finally {
+      setTokenFilterCheckLoading(false)
+    }
+  }
+
   // Generic function to make API calls for tests
   const handleApiCall = async (
     endpoint: string,
@@ -197,6 +250,75 @@ export default function TestPage() {
           />
           <p className="text-xs text-gray-400 mt-1">Required for most manual trigger operations.</p>
         </div>
+
+        <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <DatabaseZap className="h-5 w-5 text-[#51d2c1]" /> {/* Or another relevant icon */}
+              Token Filter Management
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-[#868d8f] text-sm mb-4">
+              Force a token filter check on all tokens. This will update the `low_liquidity` flag based on the current
+              threshold ($10K) and the `low_volume` flag based on the 24H volume threshold ($1K). (Requires Password)
+            </p>
+            <Button
+              onClick={forceTokenFilterCheck}
+              disabled={tokenFilterCheckLoading || !debugPassword}
+              className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
+            >
+              {tokenFilterCheckLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking Filters...
+                </>
+              ) : (
+                <>
+                  <Play className="mr-2 h-4 w-4" /> Force Token Filter Check
+                </>
+              )}
+            </Button>
+            {tokenFilterCheckResult && (
+              <div className="mt-4 pt-4 border-t border-[#2d5a4f]">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge
+                    variant={tokenFilterCheckResult.success ? "default" : "destructive"}
+                    className={tokenFilterCheckResult.success ? "bg-[#20a67d] text-black" : "bg-[#ed7188] text-white"}
+                  >
+                    {tokenFilterCheckResult.success ? "Success" : "Failed"}
+                  </Badge>
+                  <span className="text-sm text-[#868d8f]">
+                    {new Date(tokenFilterCheckResult.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                <p className="text-white font-medium">{tokenFilterCheckResult.message}</p>
+                {tokenFilterCheckResult.error && (
+                  <p className="text-[#ed7188] text-sm mt-1">Error: {tokenFilterCheckResult.error}</p>
+                )}
+                {tokenFilterCheckResult.result && (
+                  <details className="text-sm mt-2">
+                    <summary className="text-[#51d2c1] cursor-pointer hover:text-white">View Details</summary>
+                    <pre className="mt-2 p-3 bg-[#2d5a4f] rounded text-xs overflow-auto text-white">
+                      {`Total Tokens: ${tokenFilterCheckResult.result.totalTokens}
+Processed: ${tokenFilterCheckResult.result.processedCount}
+Errors: ${tokenFilterCheckResult.result.errorsCount}
+
+Liquidity:
+- Status Changes: ${tokenFilterCheckResult.result.liquidityStatusChanges}
+- Low Liquidity: ${tokenFilterCheckResult.result.lowLiquidityFinalCount}
+- Sufficient Liquidity: ${tokenFilterCheckResult.result.sufficientLiquidityFinalCount}
+
+Volume:
+- Status Changes: ${tokenFilterCheckResult.result.volumeStatusChanges}
+- Low Volume: ${tokenFilterCheckResult.result.lowVolumeFinalCount}
+- Sufficient Volume: ${tokenFilterCheckResult.result.sufficientVolumeFinalCount}`}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           <TestUnitCard

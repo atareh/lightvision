@@ -5,32 +5,32 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/token-social-sync",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/cron/daily-dune-sync",
-      "schedule": "0 6,18 * * *"
-    },
-    {
-      "path": "/api/cron/cmc-sync",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/memes-metrics",
+      "path": "/api/cron/token-refresh",
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/poll-dune-results",
-      "schedule": "*/2 * * * *"
+      "path": "/api/cron/cmc-sync",
+      "schedule": "*/30 * * * *"
     },
     {
-      "path": "/api/cron/hyperliquid-sync-revenue",
-      "schedule": "0 10,22 * * *"
+      "path": "/api/cron/memes-metrics",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/hyperevm-sync-llama",
-      "schedule": "0 10,22 * * *"
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/hyperliquid-sync-revenue",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/daily-dune-sync",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/poll-dune-results",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

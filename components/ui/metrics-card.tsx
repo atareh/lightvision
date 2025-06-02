@@ -171,7 +171,7 @@ export function MetricsCard({
         {/* Clock/refresh indicator positioned aligned with subtext with padding */}
         {(isRealtime || refreshText) && (
           <div
-            className="absolute bottom-[18px] right-4 flex items-center gap-1 text-[#868d8f]"
+            className="absolute bottom-[18px] right-4 hidden sm:flex items-center gap-1 text-[#868d8f]"
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >
