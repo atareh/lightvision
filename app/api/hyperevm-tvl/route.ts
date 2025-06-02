@@ -4,8 +4,32 @@ import { NextResponse } from "next/server"
 // Use anon key for reads
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!)
 
+// Cache variables
+let cachedData: any = null
+let lastFetchTime = 0
+const CACHE_DURATION_MS = 3 * 60 * 60 * 1000 // 3 hours in milliseconds
+
 export async function GET() {
   try {
+    const currentTime = Date.now()
+
+    // Check if we have valid cached data
+    if (cachedData && currentTime - lastFetchTime < CACHE_DURATION_MS) {
+      console.log(
+        `Returning cached HyperEVM data (cached ${Math.floor((currentTime - lastFetchTime) / 60000)} minutes ago)`,
+      )
+      return NextResponse.json({
+        ...cachedData,
+        cache_info: {
+          cached_at: new Date(lastFetchTime).toISOString(),
+          fresh_fetch_in: `${Math.floor((CACHE_DURATION_MS - (currentTime - lastFetchTime)) / 60000)} minutes`,
+        },
+      })
+    }
+
+    // If no valid cache, fetch fresh data
+    console.log("Cache expired or not set. Fetching fresh HyperEVM data...")
+
     // Get all HyperEVM data ordered by date (descending to get most recent first)
     const { data, error } = await supabase
       .from("hyperevm_protocols")
@@ -49,7 +73,19 @@ export async function GET() {
     // Process the data to calculate metrics AND return historical data
     const processedData = processHyperEVMData(data)
 
-    return NextResponse.json(processedData)
+    // Update cache
+    cachedData = processedData
+    lastFetchTime = currentTime
+
+    console.log("Fresh HyperEVM data fetched and cached")
+
+    return NextResponse.json({
+      ...processedData,
+      cache_info: {
+        cached_at: new Date(lastFetchTime).toISOString(),
+        fresh_fetch_in: `${Math.floor(CACHE_DURATION_MS / 60000)} minutes`,
+      },
+    })
   } catch (error) {
     console.error("API error:", error)
     return NextResponse.json(
@@ -141,13 +177,23 @@ function processHyperEVMData(rows: any[]) {
   // Create historical data array (chronological order)
   const historicalData = sortedDays.map((day) => dataByDay[day])
 
+  // Find the most recent updated_at timestamp from the rows
+  const latestUpdateTime = rows
+    .filter((row) => row.day === latestDay)
+    .reduce((latest, row) => {
+      const rowTime = new Date(row.updated_at || row.created_at).getTime()
+      return rowTime > latest ? rowTime : latest
+    }, 0)
+
+  const lastUpdated = latestUpdateTime > 0 ? new Date(latestUpdateTime).toISOString() : new Date().toISOString()
+
   return {
     current_tvl: currentTVL,
     daily_change: dailyChange,
     previous_day_tvl: previousData ? previousData.total : 0,
     protocols: protocolsList,
     historical_data: historicalData,
-    last_updated: new Date().toISOString(),
+    last_updated: lastUpdated,
     latest_day: latestDay,
     previous_day: previousDay,
     data_source: "llama_api",
