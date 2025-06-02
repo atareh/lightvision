@@ -18,6 +18,8 @@ export interface GenericAreaChartProps {
   dateFormatterTooltip: (dateStr: string) => string
   showWatermark?: boolean
   filterZeroValues?: boolean // Example: for annualized revenue on MAX period
+  timePeriod?: string // Added to trigger animations when timePeriod changes
+  isLoading?: boolean // Added to control blur effect
 }
 
 export default function GenericAreaChart({
@@ -30,6 +32,8 @@ export default function GenericAreaChart({
   dateFormatterTooltip,
   showWatermark = true,
   filterZeroValues = false,
+  timePeriod,
+  isLoading = false,
 }: GenericAreaChartProps) {
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, value: 0, date: "" })
@@ -153,6 +157,8 @@ export default function GenericAreaChart({
   }, [chartData, valueFormatter])
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (isLoading) return // Disable interactions during loading
+
     const rect = e.currentTarget.getBoundingClientRect()
     const mouseX = e.clientX - rect.left
     const mouseY = e.clientY - rect.top
@@ -188,6 +194,8 @@ export default function GenericAreaChart({
   }
 
   const handleTouch = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (isLoading) return // Disable interactions during loading
+
     const touch = e.touches[0]
     if (!touch) return
 
@@ -247,24 +255,34 @@ export default function GenericAreaChart({
         width="100%"
         height="100%"
         viewBox={`0 0 ${chartData.width} ${chartData.height}`}
-        className="overflow-visible cursor-crosshair"
+        className={`overflow-visible cursor-crosshair transition-all duration-500 ${
+          isLoading ? "blur-sm opacity-60" : "blur-0 opacity-100"
+        }`}
         preserveAspectRatio="none"
         onMouseMove={handleMouseMove}
         onMouseLeave={() => {
-          setTooltip({ ...tooltip, show: false })
-          setHoveredPoint(null)
+          if (!isLoading) {
+            setTooltip({ ...tooltip, show: false })
+            setHoveredPoint(null)
+          }
         }}
         onTouchStart={(e) => {
-          e.preventDefault()
-          handleTouch(e)
+          if (!isLoading) {
+            e.preventDefault()
+            handleTouch(e)
+          }
         }}
         onTouchMove={(e) => {
-          e.preventDefault()
-          handleTouch(e)
+          if (!isLoading) {
+            e.preventDefault()
+            handleTouch(e)
+          }
         }}
         onTouchEnd={() => {
-          setTooltip({ ...tooltip, show: false })
-          setHoveredPoint(null)
+          if (!isLoading) {
+            setTooltip({ ...tooltip, show: false })
+            setHoveredPoint(null)
+          }
         }}
       >
         <defs>
@@ -414,6 +432,7 @@ export default function GenericAreaChart({
         )}
 
         {tooltip.show &&
+          !isLoading &&
           tooltip.x >= chartData.padding.left &&
           tooltip.x <= chartData.width - chartData.padding.right && (
             <line
@@ -428,7 +447,7 @@ export default function GenericAreaChart({
             />
           )}
 
-        {tooltip.show && hoveredPoint !== null && chartData.points[hoveredPoint] && (
+        {tooltip.show && !isLoading && hoveredPoint !== null && chartData.points[hoveredPoint] && (
           <circle
             cx={chartData.points[hoveredPoint].x}
             cy={chartData.points[hoveredPoint].y}
@@ -443,7 +462,7 @@ export default function GenericAreaChart({
         )}
       </svg>
 
-      {tooltip.show && (
+      {tooltip.show && !isLoading && (
         <div
           className="absolute z-50 bg-[#0f1a1f] rounded-lg px-4 py-3 text-sm pointer-events-none shadow-xl"
           style={{

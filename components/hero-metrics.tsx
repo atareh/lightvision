@@ -228,7 +228,7 @@ export default function HeroMetrics() {
         ),
         change: annualizedRevenueChange,
         isPositive: annualizedRevenueIsPositive,
-        isLoading: revenueLoading || loadingHistorical,
+        isLoading: revenueLoading,
         color: "#ff8c42",
         dataKey: "annualizedRevenue",
       },
@@ -252,15 +252,7 @@ export default function HeroMetrics() {
         dataKey: "wallets",
       },
     }),
-    [
-      duneData,
-      revenueData,
-      duneLoading,
-      revenueLoading,
-      annualizedRevenueChange,
-      annualizedRevenueIsPositive,
-      loadingHistorical,
-    ],
+    [duneData, revenueData, duneLoading, revenueLoading, annualizedRevenueChange, annualizedRevenueIsPositive],
   )
 
   const currentMetricConfig = metricsConfig[activeMetric]
@@ -364,27 +356,47 @@ export default function HeroMetrics() {
       <div className="flex-1 min-w-0">
         <Card className="bg-[#062722] rounded-[10px] shadow-xl drop-shadow-lg overflow-hidden border-0 h-[528px] flex flex-col">
           <ChartHeader title={getGraphTitle()} timeRange={timePeriod} setTimeRange={setTimePeriod} />
-          <CardContent className="bg-[#0f1a1f] p-0 flex-1 overflow-hidden">
+          <CardContent className="bg-[#0f1a1f] p-0 flex-1 overflow-hidden relative">
             <div ref={chartContainerRef} className="w-full h-full">
-              {(loadingHistorical || chartDataForMetric.length === 0) &&
-              chartDimensions.width > 0 &&
-              chartDimensions.height > 0 ? (
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="animate-pulse bg-[#2d5a4f]/50 rounded w-[calc(100%-40px)] h-[calc(100%-40px)] m-5"></div>
+              {chartDimensions.width > 0 && chartDimensions.height > 0 ? (
+                <>
+                  <GenericAreaChart
+                    data={chartDataForMetric}
+                    color={currentMetricConfig.color}
+                    width={chartDimensions.width}
+                    height={chartDimensions.height}
+                    valueFormatter={valueFormatterForMetric}
+                    dateFormatterAxis={dateFormatterAxis}
+                    dateFormatterTooltip={dateFormatterTooltip}
+                    filterZeroValues={filterZeroValuesForChart}
+                    showWatermark={true}
+                    timePeriod={timePeriod}
+                    isLoading={loadingHistorical}
+                  />
+                  {loadingHistorical && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="flex flex-col items-center">
+                        <div className="text-lg font-bold mb-2 text-center text-white/80">
+                          <span className="font-normal" style={{ fontFamily: "Teodor, Arial, sans-serif" }}>
+                            Hype
+                          </span>
+                          <span className="font-light italic" style={{ fontFamily: "Teodor, Arial, sans-serif" }}>
+                            Screener
+                          </span>
+                          <span className="font-normal" style={{ fontFamily: "Teodor, Arial, sans-serif" }}>
+                            .xyz
+                          </span>
+                        </div>
+                        <div className="animate-pulse bg-white/20 rounded w-16 h-0.5"></div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+                  Loading chart...
                 </div>
-              ) : chartDimensions.width > 0 && chartDimensions.height > 0 ? (
-                <GenericAreaChart
-                  data={chartDataForMetric}
-                  color={currentMetricConfig.color}
-                  width={chartDimensions.width}
-                  height={chartDimensions.height}
-                  valueFormatter={valueFormatterForMetric}
-                  dateFormatterAxis={dateFormatterAxis}
-                  dateFormatterTooltip={dateFormatterTooltip}
-                  filterZeroValues={filterZeroValuesForChart}
-                  showWatermark={true} // Or make this dynamic if needed
-                />
-              ) : null}
+              )}
             </div>
           </CardContent>
         </Card>
