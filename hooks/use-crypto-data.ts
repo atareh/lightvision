@@ -42,7 +42,7 @@ export function useCryptoData() {
     fetchData()
 
     // Refresh data every 2 minutes (since data is cached on server)
-    const interval = setInterval(fetchData, 2 * 60 * 1000)
+    const interval = setInterval(fetchData, 2 * 60 * 1000) // Refresh every 2 minutes
 
     return () => clearInterval(interval)
   }, [])

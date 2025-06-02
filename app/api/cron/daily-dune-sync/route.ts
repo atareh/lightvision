@@ -3,150 +3,126 @@ import { createClient } from "@supabase/supabase-js"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
+// The only Dune query ID we will now trigger in this cron
+const HYPERLIQUID_STATS_QUERY_ID = 5184581
+
 export async function GET(request: NextRequest) {
-  const executionId = `cron_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  const executionId = `cron_main_stats_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   const startTime = Date.now()
 
-  // Start logging
-  await logCronStart(executionId)
+  await logCronStart(executionId, "daily_hyperliquid_stats_sync")
 
   try {
-    // Verify this is actually a cron request from Vercel
     const authHeader = request.headers.get("authorization")
     if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      await logCronError(executionId, "Unauthorized - invalid CRON_SECRET", startTime)
+      await logCronError(executionId, "Unauthorized - invalid CRON_SECRET", startTime, "daily_hyperliquid_stats_sync")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    console.log(`🕕 [${executionId}] Daily sync cron job triggered at 6am/6pm ET`)
-    await logCronProgress(executionId, "Cron job started - authorization verified")
+    console.log(`🕕 [${executionId}] Daily Hyperliquid Stats sync cron job triggered.`)
+    await logCronProgress(executionId, "Cron job started - authorization verified", "daily_hyperliquid_stats_sync")
 
     const results = {
-      dune_sync: null,
-      hyperevm_sync: null,
-      revenue_sync: null,
+      hyperliquid_stats_sync: null,
+      // Deprecated: hyperevm_sync: null,
+      // Deprecated: revenue_sync: null,
       cmc_sync: null,
     }
 
-    let successCount = 0
-    let errorCount = 0
+    let duneQuerySuccess = false
+    let cmcSyncSuccess = false
 
-    // TRIGGER Dune sync (don't wait for completion)
+    // TRIGGER Hyperliquid Stats Dune sync (main TVL/Wallets query)
     try {
-      console.log(`📊 [${executionId}] Triggering Dune sync...`)
-      await logCronProgress(executionId, "Triggering Dune sync")
+      console.log(
+        `📊 [${executionId}] Triggering Hyperliquid Stats Dune sync (Query ID: ${HYPERLIQUID_STATS_QUERY_ID})...`,
+      )
+      await logCronProgress(
+        executionId,
+        `Triggering Dune sync for Query ID ${HYPERLIQUID_STATS_QUERY_ID}`,
+        "daily_hyperliquid_stats_sync",
+      )
 
-      const duneResult = await triggerDuneSync(executionId)
-      results.dune_sync = duneResult
+      const duneResult = await triggerSpecificDuneQuery(executionId, HYPERLIQUID_STATS_QUERY_ID, "Hyperliquid Stats")
+      results.hyperliquid_stats_sync = duneResult
 
       if (duneResult.success) {
-        successCount++
-        console.log(`✅ [${executionId}] Dune sync triggered successfully`)
-        await logCronProgress(executionId, `Dune sync triggered: ${duneResult.execution_id}`)
+        duneQuerySuccess = true
+        console.log(
+          `✅ [${executionId}] Hyperliquid Stats Dune sync triggered successfully (Execution: ${duneResult.execution_id})`,
+        )
+        await logCronProgress(
+          executionId,
+          `Hyperliquid Stats Dune sync triggered: ${duneResult.execution_id}`,
+          "daily_hyperliquid_stats_sync",
+        )
       } else {
-        errorCount++
-        console.log(`❌ [${executionId}] Dune sync trigger failed:`, duneResult.error)
-        await logCronProgress(executionId, `Dune sync trigger failed: ${duneResult.error}`)
+        console.log(`❌ [${executionId}] Hyperliquid Stats Dune sync trigger failed:`, duneResult.error)
+        await logCronProgress(
+          executionId,
+          `Hyperliquid Stats Dune sync trigger failed: ${duneResult.error}`,
+          "daily_hyperliquid_stats_sync",
+        )
       }
     } catch (error) {
-      errorCount++
       const errorMsg = error instanceof Error ? error.message : "Unknown error"
-      console.error(`❌ [${executionId}] Dune sync trigger failed:`, error)
-      results.dune_sync = { success: false, error: errorMsg }
-      await logCronProgress(executionId, `Dune sync trigger exception: ${errorMsg}`)
+      console.error(`❌ [${executionId}] Hyperliquid Stats Dune sync trigger exception:`, error)
+      results.hyperliquid_stats_sync = { success: false, error: errorMsg }
+      await logCronProgress(
+        executionId,
+        `Hyperliquid Stats Dune sync trigger exception: ${errorMsg}`,
+        "daily_hyperliquid_stats_sync",
+      )
     }
 
-    // TRIGGER HyperEVM sync (don't wait for completion)
-    try {
-      console.log(`🔗 [${executionId}] Triggering HyperEVM sync...`)
-      await logCronProgress(executionId, "Triggering HyperEVM sync")
-
-      const hyperevmResult = await triggerHyperEVMSync(executionId)
-      results.hyperevm_sync = hyperevmResult
-
-      if (hyperevmResult.success) {
-        successCount++
-        console.log(`✅ [${executionId}] HyperEVM sync triggered successfully`)
-        await logCronProgress(executionId, `HyperEVM sync triggered: ${hyperevmResult.execution_id}`)
-      } else {
-        errorCount++
-        console.log(`❌ [${executionId}] HyperEVM sync trigger failed:`, hyperevmResult.error)
-        await logCronProgress(executionId, `HyperEVM sync trigger failed: ${hyperevmResult.error}`)
-      }
-    } catch (error) {
-      errorCount++
-      const errorMsg = error instanceof Error ? error.message : "Unknown error"
-      console.error(`❌ [${executionId}] HyperEVM sync trigger failed:`, error)
-      results.hyperevm_sync = { success: false, error: errorMsg }
-      await logCronProgress(executionId, `HyperEVM sync trigger exception: ${errorMsg}`)
-    }
-
-    // TRIGGER Revenue sync (don't wait for completion)
-    try {
-      console.log(`💰 [${executionId}] Triggering Revenue sync...`)
-      await logCronProgress(executionId, "Triggering Revenue sync")
-
-      const revenueResult = await triggerRevenueSync(executionId)
-      results.revenue_sync = revenueResult
-
-      if (revenueResult.success) {
-        successCount++
-        console.log(`✅ [${executionId}] Revenue sync triggered successfully`)
-        await logCronProgress(executionId, `Revenue sync triggered: ${revenueResult.execution_id}`)
-      } else {
-        errorCount++
-        console.log(`❌ [${executionId}] Revenue sync trigger failed:`, revenueResult.error)
-        await logCronProgress(executionId, `Revenue sync trigger failed: ${revenueResult.error}`)
-      }
-    } catch (error) {
-      errorCount++
-      const errorMsg = error instanceof Error ? error.message : "Unknown error"
-      console.error(`❌ [${executionId}] Revenue sync trigger failed:`, error)
-      results.revenue_sync = { success: false, error: errorMsg }
-      await logCronProgress(executionId, `Revenue sync trigger exception: ${errorMsg}`)
-    }
-
-    // CMC sync can complete quickly, so we can still do it synchronously
+    // CMC sync can still run as it's independent
     try {
       console.log(`🪙 [${executionId}] Starting CMC sync...`)
-      await logCronProgress(executionId, "Starting CMC sync")
+      await logCronProgress(executionId, "Starting CMC sync", "daily_hyperliquid_stats_sync")
 
-      const cmcResult = await performCMCSync(executionId)
+      const cmcResult = await performCMCSync(executionId) // Assuming performCMCSync is defined below or imported
       results.cmc_sync = cmcResult
 
       if (cmcResult.success) {
-        successCount++
+        cmcSyncSuccess = true
         console.log(`✅ [${executionId}] CMC sync completed successfully`)
-        await logCronProgress(executionId, "CMC sync completed successfully")
+        await logCronProgress(executionId, "CMC sync completed successfully", "daily_hyperliquid_stats_sync")
       } else {
-        errorCount++
         console.log(`❌ [${executionId}] CMC sync failed:`, cmcResult.error)
-        await logCronProgress(executionId, `CMC sync failed: ${cmcResult.error}`)
+        await logCronProgress(executionId, `CMC sync failed: ${cmcResult.error}`, "daily_hyperliquid_stats_sync")
       }
     } catch (error) {
-      errorCount++
       const errorMsg = error instanceof Error ? error.message : "Unknown error"
       console.error(`❌ [${executionId}] CMC sync failed:`, error)
       results.cmc_sync = { success: false, error: errorMsg }
-      await logCronProgress(executionId, `CMC sync exception: ${errorMsg}`)
+      await logCronProgress(executionId, `CMC sync exception: ${errorMsg}`, "daily_hyperliquid_stats_sync")
     }
 
-    const allTriggered = successCount >= 3 // 3 Dune queries + CMC
+    const overallSuccess = duneQuerySuccess && cmcSyncSuccess
     const duration = Date.now() - startTime
+    const successCount = (duneQuerySuccess ? 1 : 0) + (cmcSyncSuccess ? 1 : 0)
+    const errorCount = 2 - successCount
 
     console.log(
-      `🎯 [${executionId}] Daily sync triggers completed: ${successCount}/4 successful, ${errorCount} errors, ${duration}ms`,
+      `🎯 [${executionId}] Daily Hyperliquid Stats sync completed: ${successCount}/2 tasks successful, ${errorCount} errors, ${duration}ms`,
     )
 
-    // Log completion
-    await logCronComplete(executionId, allTriggered, successCount, errorCount, results, duration)
+    await logCronComplete(
+      executionId,
+      overallSuccess,
+      successCount,
+      errorCount,
+      results,
+      duration,
+      "daily_hyperliquid_stats_sync",
+    )
 
     return NextResponse.json({
-      success: allTriggered,
+      success: overallSuccess,
       execution_id: executionId,
-      message: allTriggered
-        ? "Daily sync triggers completed successfully - queries running in background"
-        : `Daily sync completed with ${errorCount} trigger failures`,
+      message: overallSuccess
+        ? "Daily Hyperliquid Stats sync triggers completed successfully."
+        : `Daily Hyperliquid Stats sync completed with ${errorCount} task failures.`,
       timestamp: new Date().toISOString(),
       duration_ms: duration,
       success_count: successCount,
@@ -158,7 +134,7 @@ export async function GET(request: NextRequest) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error"
 
     console.error(`❌ [${executionId}] Cron job failed:`, error)
-    await logCronError(executionId, errorMsg, startTime, duration)
+    await logCronError(executionId, errorMsg, startTime, duration, "daily_hyperliquid_stats_sync")
 
     return NextResponse.json(
       {
@@ -174,17 +150,21 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Trigger functions that just start queries and return immediately
-async function triggerDuneSync(cronExecutionId: string) {
+// Generic function to trigger a specific Dune query
+async function triggerSpecificDuneQuery(cronJobInternalExecutionId: string, queryId: number, queryName: string) {
+  console.log(
+    `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Attempting to trigger Dune query ID ${queryId}`,
+  )
   try {
     const duneApiKey = process.env.DUNE_API_KEY
-    const queryId = 5184581
-
     if (!duneApiKey) {
+      console.error(`[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): DUNE_API_KEY not found`)
       throw new Error("DUNE_API_KEY not found")
     }
 
-    // Execute the Dune query
+    console.log(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Executing Dune query ${queryId}...`,
+    )
     const execResponse = await fetch(`https://api.dune.com/api/v1/query/${queryId}/execute`, {
       method: "POST",
       headers: {
@@ -194,139 +174,84 @@ async function triggerDuneSync(cronExecutionId: string) {
       body: JSON.stringify({ performance: "medium" }),
     })
 
+    const execResponseText = await execResponse.text()
+    console.log(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Dune execute response status: ${execResponse.status}, body: ${execResponseText.substring(0, 200)}`,
+    )
+
     if (!execResponse.ok) {
-      const errorText = await execResponse.text()
-      throw new Error(`Dune execute failed: ${execResponse.status} - ${errorText}`)
+      throw new Error(`Dune execute failed for ${queryName}: ${execResponse.status} - ${execResponseText}`)
     }
 
-    const execData = await execResponse.json()
-    const executionId = execData.execution_id
+    let execData
+    try {
+      execData = JSON.parse(execResponseText)
+    } catch (e) {
+      throw new Error(`Dune execute response is not valid JSON for ${queryName}: ${execResponseText}`)
+    }
 
-    // Store the execution for background polling
-    await supabase.from("dune_executions").insert([
-      {
-        execution_id: executionId,
-        query_id: queryId,
-        status: "PENDING",
-        cron_execution_id: cronExecutionId,
-        created_at: new Date().toISOString(),
-      },
-    ])
+    const duneExecutionId = execData.execution_id // Renamed to avoid confusion with cronJobInternalExecutionId
+    if (!duneExecutionId) {
+      throw new Error(`Dune execute response missing execution_id for ${queryName}: ${execResponseText}`)
+    }
+    console.log(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Dune execution_id received: ${duneExecutionId}`,
+    )
 
+    const insertPayload = {
+      execution_id: duneExecutionId,
+      query_id: queryId,
+      status: "PENDING",
+      cron_execution_id: cronJobInternalExecutionId,
+      created_at: new Date().toISOString(),
+    }
+    console.log(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Attempting to insert into Supabase dune_executions:`,
+      JSON.stringify(insertPayload),
+    )
+
+    const {
+      data: insertData,
+      error: insertError,
+      status: insertStatus,
+      statusText: insertStatusText,
+    } = await supabase.from("dune_executions").insert([insertPayload]).select()
+
+    console.log(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Supabase insert response - Status: ${insertStatus}, StatusText: ${insertStatusText}, Error: ${JSON.stringify(insertError)}, Data: ${JSON.stringify(insertData)}`,
+    )
+
+    if (insertError) {
+      console.error(
+        `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Supabase insert failed. Status: ${insertStatus}, Error: ${JSON.stringify(insertError)}`,
+      )
+      throw new Error(
+        `Supabase insert failed for ${queryName} (Dune exec_id ${duneExecutionId}): ${insertError.message} (Code: ${insertError.code}, Details: ${insertError.details}, Hint: ${insertError.hint})`,
+      )
+    }
+
+    console.log(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Supabase insert successful for Dune execution_id ${duneExecutionId}`,
+    )
     return {
       success: true,
-      execution_id: executionId,
-      message: "Dune query triggered successfully",
+      execution_id: duneExecutionId, // This is the Dune execution_id
+      message: `${queryName} query triggered and Supabase record created successfully`,
     }
   } catch (error) {
+    const errorMsg =
+      error instanceof Error ? error.message : `Unknown error in triggerSpecificDuneQuery for ${queryName}`
+    console.error(
+      `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): CATCH BLOCK - Error: ${errorMsg}`,
+    )
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: errorMsg,
     }
   }
 }
 
-async function triggerHyperEVMSync(cronExecutionId: string) {
-  try {
-    const duneApiKey = process.env.DUNE_API_KEY
-    const queryId = 5184111
-
-    if (!duneApiKey) {
-      throw new Error("DUNE_API_KEY not found")
-    }
-
-    const execResponse = await fetch(`https://api.dune.com/api/v1/query/${queryId}/execute`, {
-      method: "POST",
-      headers: {
-        "X-Dune-Api-Key": duneApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ performance: "medium" }),
-    })
-
-    if (!execResponse.ok) {
-      const errorText = await execResponse.text()
-      throw new Error(`HyperEVM execute failed: ${execResponse.status} - ${errorText}`)
-    }
-
-    const execData = await execResponse.json()
-    const executionId = execData.execution_id
-
-    // Store the execution for background polling
-    await supabase.from("dune_executions").insert([
-      {
-        execution_id: executionId,
-        query_id: queryId,
-        status: "PENDING",
-        cron_execution_id: cronExecutionId,
-        created_at: new Date().toISOString(),
-      },
-    ])
-
-    return {
-      success: true,
-      execution_id: executionId,
-      message: "HyperEVM query triggered successfully",
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    }
-  }
-}
-
-async function triggerRevenueSync(cronExecutionId: string) {
-  try {
-    const duneApiKey = process.env.DUNE_API_KEY
-    const queryId = 5184711
-
-    if (!duneApiKey) {
-      throw new Error("DUNE_API_KEY not found")
-    }
-
-    const execResponse = await fetch(`https://api.dune.com/api/v1/query/${queryId}/execute`, {
-      method: "POST",
-      headers: {
-        "X-Dune-Api-Key": duneApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ performance: "medium" }),
-    })
-
-    if (!execResponse.ok) {
-      const errorText = await execResponse.text()
-      throw new Error(`Revenue execute failed: ${execResponse.status} - ${errorText}`)
-    }
-
-    const execData = await execResponse.json()
-    const executionId = execData.execution_id
-
-    // Store the execution for background polling
-    await supabase.from("dune_executions").insert([
-      {
-        execution_id: executionId,
-        query_id: queryId,
-        status: "PENDING",
-        cron_execution_id: cronExecutionId,
-        created_at: new Date().toISOString(),
-      },
-    ])
-
-    return {
-      success: true,
-      execution_id: executionId,
-      message: "Revenue query triggered successfully",
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    }
-  }
-}
-
-// CMC sync function (from the working CMC cron)
+// performCMCSync function remains the same as your previous version
 async function performCMCSync(executionId: string) {
   try {
     const cmcApiKey = process.env.CMC_PRO_API_KEY
@@ -392,28 +317,28 @@ async function performCMCSync(executionId: string) {
   }
 }
 
-// Helper functions for logging (same as before)
-async function logCronStart(executionId: string) {
+// Logging helper functions need to accept cronType
+async function logCronStart(executionId: string, cronType: string) {
   try {
     await supabase.from("cron_logs").insert([
       {
         execution_id: executionId,
-        cron_type: "daily_sync",
+        cron_type: cronType, // Use passed cronType
         status: "RUNNING",
         started_at: new Date().toISOString(),
       },
     ])
   } catch (error) {
-    console.error("Failed to log cron start:", error)
+    console.error(`[${cronType}] Failed to log cron start:`, error)
   }
 }
 
-async function logCronProgress(executionId: string, message: string) {
+async function logCronProgress(executionId: string, message: string, cronType: string) {
   try {
     const { data: existing } = await supabase
       .from("cron_logs")
       .select("results")
-      .eq("execution_id", executionId)
+      .eq("execution_id", executionId) // Assuming execution_id is unique enough across types for this log
       .single()
 
     const currentResults = existing?.results || { progress: [] }
@@ -431,7 +356,7 @@ async function logCronProgress(executionId: string, message: string) {
       })
       .eq("execution_id", executionId)
   } catch (error) {
-    console.error("Failed to log cron progress:", error)
+    console.error(`[${cronType}] Failed to log cron progress:`, error)
   }
 }
 
@@ -442,6 +367,7 @@ async function logCronComplete(
   errorCount: number,
   results: any,
   duration: number,
+  cronType: string,
 ) {
   try {
     await supabase
@@ -457,11 +383,18 @@ async function logCronComplete(
       })
       .eq("execution_id", executionId)
   } catch (error) {
-    console.error("Failed to log cron completion:", error)
+    console.error(`[${cronType}] Failed to log cron completion:`, error)
   }
 }
 
-async function logCronError(executionId: string, errorMessage: string, startTime: number, duration?: number) {
+async function logCronError(
+  executionId: string,
+  errorMessage: string,
+  startTime: number,
+  duration?: number,
+  cronType?: string, // Optional, but good for context
+) {
+  const logCtx = cronType ? `[${cronType}] ` : ""
   try {
     const finalDuration = duration || Date.now() - startTime
     await supabase
@@ -475,7 +408,7 @@ async function logCronError(executionId: string, errorMessage: string, startTime
       })
       .eq("execution_id", executionId)
   } catch (error) {
-    console.error("Failed to log cron error:", error)
+    console.error(`${logCtx}Failed to log cron error:`, error)
   }
 }
 

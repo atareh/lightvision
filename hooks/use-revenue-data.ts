@@ -66,11 +66,11 @@ export function useRevenueData() {
     fetchData()
 
     // Add auto-refresh interval - refresh every 2 minutes
-    const interval = setInterval(fetchData, 2 * 60 * 1000)
+    // const interval = setInterval(fetchData, 15 * 60 * 1000) // Refresh every 15 minutes
 
-    return () => {
-      clearInterval(interval)
-    }
+    // return () => {
+    //   clearInterval(interval)
+    // }
   }, [])
 
   return { data, loading, error }

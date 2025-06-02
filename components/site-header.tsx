@@ -23,6 +23,15 @@ export default function SiteHeader() {
         {/* Desktop Navigation */}
         <div className="hidden sm:flex items-center gap-4 h-full">
           <a
+            href="https://x.com/hypescreenerxyz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-white hover:text-[#51d2c1] transition-colors font-sans text-sm"
+          >
+            Twitter
+            <ExternalLink className="h-3 w-3" />
+          </a>
+          <a
             href="https://app.hyperliquid.xyz"
             target="_blank"
             rel="noopener noreferrer"

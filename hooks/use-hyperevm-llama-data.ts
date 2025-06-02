@@ -109,8 +109,8 @@ export function useHyperEVMLlamaData() {
     }
 
     fetchData()
-    // Refresh every 30 minutes since Llama data updates less frequently than token data
-    const interval = setInterval(fetchData, 30 * 60 * 1000)
+    // Refresh every 6 hours as Llama data updates infrequently
+    const interval = setInterval(fetchData, 6 * 60 * 60 * 1000)
 
     return () => clearInterval(interval)
   }, [])

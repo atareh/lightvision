@@ -80,7 +80,7 @@ export function useDuneData() {
     fetchData()
 
     // Refresh data every 5 minutes instead of 30 minutes for more frequent updates
-    const interval = setInterval(fetchData, 2 * 60 * 1000)
+    const interval = setInterval(fetchData, 3 * 60 * 60 * 1000) // Refresh every 3 hours
 
     return () => clearInterval(interval)
   }, [])

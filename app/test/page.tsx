@@ -2,12 +2,13 @@
 
 import DebugAuth from "@/components/debug-auth"
 import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Loader2, Play, RefreshCw } from "lucide-react"
+import { DollarSign, Loader2, Play, RefreshCw, TrendingUp, DatabaseZap, BarChartBig } from "lucide-react" // Added DatabaseZap, BarChartBig
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
 
 interface TestResult {
   success: boolean
@@ -17,501 +18,312 @@ interface TestResult {
   error?: string
 }
 
-interface ExecutionStatus {
-  execution_id: string
-  status: string
-  created_at: string
-  updated_at: string
-  completed_at?: string
-  row_count?: number
-  error_message?: string
+// ResultCard component remains the same
+const ResultCard = ({ result, showTitle = false }: { result: TestResult | null; showTitle?: boolean }) => {
+  if (!result) {
+    return <p className="text-[#868d8f] text-sm mt-4">No result yet. Click the button above to run the test.</p>
+  }
+  return (
+    <div className="mt-4 pt-4 border-t border-[#2d5a4f]">
+      {showTitle && <h4 className="text-md font-semibold text-white mb-2">Result:</h4>}
+      <div className="flex items-center gap-2 mb-2">
+        <Badge
+          variant={result.success ? "default" : "destructive"}
+          className={result.success ? "bg-[#20a67d] text-black" : "bg-[#ed7188] text-white"}
+        >
+          {result.success ? "Success" : "Failed"}
+        </Badge>
+        <span className="text-sm text-[#868d8f]">{new Date(result.timestamp).toLocaleTimeString()}</span>
+      </div>
+      <div>
+        <p className="text-white font-medium">{result.message}</p>
+        {result.error && <p className="text-[#ed7188] text-sm mt-1">Error: {result.error}</p>}
+      </div>
+      {result.result && (
+        <details className="text-sm mt-2">
+          <summary className="text-[#51d2c1] cursor-pointer hover:text-white">View Details</summary>
+          <pre className="mt-2 p-3 bg-[#2d5a4f] rounded text-xs overflow-auto text-white">
+            {JSON.stringify(result.result, null, 2)}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
 }
 
-const ResultCard = ({ title, result, icon }: { title: string; result: TestResult | null; icon: React.ReactNode }) => (
-  <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-    <CardHeader>
-      <CardTitle className="flex items-center gap-2 text-white">
-        {icon}
-        {title}
-      </CardTitle>
-    </CardHeader>
-    <CardContent className="space-y-4">
-      {result && (
-        <>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={result.success ? "default" : "destructive"}
-              className={result.success ? "bg-[#20a67d] text-black" : "bg-[#ed7188] text-white"}
-            >
-              {result.success ? "Success" : "Failed"}
-            </Badge>
-            <span className="text-sm text-[#868d8f]">{new Date(result.timestamp).toLocaleTimeString()}</span>
-          </div>
-
-          <div>
-            <p className="text-white font-medium">{result.message}</p>
-            {result.error && <p className="text-[#ed7188] text-sm mt-1">Error: {result.error}</p>}
-          </div>
-
-          {result.result && (
-            <details className="text-sm">
-              <summary className="text-[#51d2c1] cursor-pointer hover:text-white">View Details</summary>
-              <pre className="mt-2 p-3 bg-[#2d5a4f] rounded text-xs overflow-auto text-white">
-                {JSON.stringify(result.result, null, 2)}
-              </pre>
-            </details>
+// New component for each test unit
+const TestUnitCard = ({
+  title,
+  description,
+  buttonText,
+  onTrigger,
+  isLoading,
+  result,
+  icon: Icon,
+  requiresPassword = true,
+}: {
+  title: string
+  description: string
+  buttonText: string
+  onTrigger: () => Promise<void>
+  isLoading: boolean
+  result: TestResult | null
+  icon: React.ElementType
+  requiresPassword?: boolean
+}) => {
+  return (
+    <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl flex flex-col">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-white">
+          <Icon className="h-5 w-5 text-[#51d2c1]" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex-grow flex flex-col">
+        <p className="text-[#868d8f] text-sm mb-4 flex-grow">
+          {description} {requiresPassword && "(Requires Password)"}
+        </p>
+        <Button
+          onClick={onTrigger}
+          disabled={isLoading}
+          className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors mt-auto"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing...
+            </>
+          ) : (
+            <>
+              <Play className="mr-2 h-4 w-4" /> {buttonText}
+            </>
           )}
-        </>
-      )}
-    </CardContent>
-  </Card>
-)
+        </Button>
+        <ResultCard result={result} />
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function TestPage() {
-  const [duneLoading, setDuneLoading] = useState(false)
-  const [duneResult, setDuneResult] = useState<TestResult | null>(null)
-  const [duneExecutionLoading, setDuneExecutionLoading] = useState(false)
-  const [duneExecutionResult, setDuneExecutionResult] = useState<TestResult | null>(null)
-  const [cmcLoading, setCmcLoading] = useState(false)
-  const [cmcResult, setCmcResult] = useState<TestResult | null>(null)
-  const [revenueLoading, setRevenueLoading] = useState(false)
-  const [revenueResult, setRevenueResult] = useState<TestResult | null>(null)
-  const [tokenRefreshLoading, setTokenRefreshLoading] = useState(false)
-  const [tokenRefreshResult, setTokenRefreshResult] = useState<TestResult | null>(null)
+  const [debugPassword, setDebugPassword] = useState("")
+
+  const [llamaRevenueSyncLoading, setLlamaRevenueSyncLoading] = useState(false)
+  const [llamaRevenueSyncResult, setLlamaRevenueSyncResult] = useState<TestResult | null>(null)
+
+  const [cmcSyncLoading, setCmcSyncLoading] = useState(false)
+  const [cmcSyncResult, setCmcSyncResult] = useState<TestResult | null>(null)
+
   const [cmcCronLoading, setCmcCronLoading] = useState(false)
   const [cmcCronResult, setCmcCronResult] = useState<TestResult | null>(null)
 
-  const testDuneSync = async () => {
-    setDuneLoading(true)
-    setDuneResult(null)
+  const [memesRefreshLoading, setMemesRefreshLoading] = useState(false)
+  const [memesRefreshResult, setMemesRefreshResult] = useState<TestResult | null>(null)
 
-    try {
-      const response = await fetch("/api/dune-sync", {
-        method: "POST",
-      })
+  const [memesMetricsLoading, setMemesMetricsLoading] = useState(false)
+  const [memesMetricsResult, setMemesMetricsResult] = useState<TestResult | null>(null)
 
-      const result = await response.json()
-      setDuneResult({
-        success: response.ok,
-        message: result.message || (response.ok ? "Dune sync completed" : "Dune sync failed"),
-        timestamp: new Date().toISOString(),
-        result: result,
-        error: result.error,
-      })
-    } catch (error) {
-      setDuneResult({
-        success: false,
-        message: "Network error",
-        timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
-      })
-    } finally {
-      setDuneLoading(false)
+  // New state for HyperEVM TVL Sync
+  const [hyperEVMSyncLoading, setHyperEVMSyncLoading] = useState(false)
+  const [hyperEVMSyncResult, setHyperEVMSyncResult] = useState<TestResult | null>(null)
+
+  // New state for manual Dune query trigger
+  const [manualDuneTriggerLoading, setManualDuneTriggerLoading] = useState(false)
+  const [manualDuneTriggerResult, setManualDuneTriggerResult] = useState<TestResult | null>(null)
+
+  // Generic function to make API calls for tests
+  const handleApiCall = async (
+    endpoint: string,
+    setLoading: React.Dispatch<React.SetStateAction<boolean>>,
+    setResult: React.Dispatch<React.SetStateAction<TestResult | null>>,
+    successMessage: string,
+    failureMessage: string,
+    requiresPassword = true,
+  ) => {
+    if (requiresPassword && !debugPassword) {
+      toast({ title: "Error", description: "Please enter the debug password.", variant: "destructive" })
+      return
     }
-  }
-
-  const testHyperEVMSync = async () => {
-    setDuneExecutionLoading(true)
-    setDuneExecutionResult(null)
-
+    setLoading(true)
+    setResult(null)
     try {
-      const response = await fetch("/api/hyperevm-sync", {
+      const response = await fetch(endpoint, {
         method: "POST",
+        headers: requiresPassword ? { "Content-Type": "application/json" } : {},
+        body: requiresPassword ? JSON.stringify({ password: debugPassword }) : undefined,
       })
-
-      const result = await response.json()
-      setDuneExecutionResult({
+      const resultData = await response.json()
+      setResult({
         success: response.ok,
-        message: result.message || (response.ok ? "HyperEVM sync completed" : "HyperEVM sync failed"),
+        message: resultData.message || (response.ok ? successMessage : failureMessage),
         timestamp: new Date().toISOString(),
-        result: result,
-        error: result.error,
+        result: resultData,
+        error: resultData.error,
       })
+      if (!response.ok && resultData.error) {
+        toast({ title: "API Error", description: resultData.error, variant: "destructive" })
+      } else if (!response.ok) {
+        toast({ title: "API Error", description: resultData.message || failureMessage, variant: "destructive" })
+      }
     } catch (error) {
-      setDuneExecutionResult({
+      const errorMessage = error instanceof Error ? error.message : "Unknown network error."
+      setResult({
         success: false,
         message: "Network error",
         timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: errorMessage,
       })
+      toast({ title: "Network Error", description: errorMessage, variant: "destructive" })
     } finally {
-      setDuneExecutionLoading(false)
-    }
-  }
-
-  const testCmcSync = async () => {
-    setCmcLoading(true)
-    setCmcResult(null)
-
-    try {
-      const response = await fetch("/api/cmc-sync", {
-        method: "POST",
-      })
-
-      const result = await response.json()
-      setCmcResult({
-        success: response.ok,
-        message: result.message || (response.ok ? "CMC sync completed" : "CMC sync failed"),
-        timestamp: new Date().toISOString(),
-        result: result,
-        error: result.error,
-      })
-    } catch (error) {
-      setCmcResult({
-        success: false,
-        message: "Network error",
-        timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
-      })
-    } finally {
-      setCmcLoading(false)
-    }
-  }
-
-  const testRevenueSync = async () => {
-    setRevenueLoading(true)
-    setRevenueResult(null)
-
-    try {
-      const response = await fetch("/api/revenue-sync", {
-        method: "POST",
-      })
-
-      const result = await response.json()
-      setRevenueResult({
-        success: response.ok,
-        message: result.message || (response.ok ? "Revenue sync completed" : "Revenue sync failed"),
-        timestamp: new Date().toISOString(),
-        result: result,
-        error: result.error,
-      })
-    } catch (error) {
-      setRevenueResult({
-        success: false,
-        message: "Network error",
-        timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
-      })
-    } finally {
-      setRevenueLoading(false)
+      setLoading(false)
     }
   }
 
   return (
-    <DebugAuth title="Test Page">
+    <DebugAuth title="Test Page - System Triggers">
       <div className="container mx-auto p-4">
-        <h1 className="text-2xl font-bold mb-4">Test Page</h1>
+        <h1 className="text-2xl font-bold mb-6 text-white">Manual System Triggers</h1>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-4">
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <Play className="h-5 w-5 text-[#51d2c1]" />
-                Hyperliquid Stats Sync
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">Sync HYPE data from Dune query 5184581.</p>
-              <Button
-                onClick={testDuneSync}
-                disabled={duneLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {duneLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Syncing Hyperliquid...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Sync Hyperliquid Data
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <Play className="h-5 w-5 text-[#51d2c1]" />
-                HyperEVM Sync
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">Sync HyperEVM TVL data from Dune query 5184111.</p>
-              <Button
-                onClick={testHyperEVMSync}
-                disabled={duneExecutionLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {duneExecutionLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Syncing HyperEVM...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Sync HyperEVM Data
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <DollarSign className="h-5 w-5 text-[#51d2c1]" />
-                CMC Sync
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">Sync HYPE price data from CoinMarketCap API.</p>
-              <Button
-                onClick={testCmcSync}
-                disabled={cmcLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {cmcLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Syncing CMC...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Sync CMC Data
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <DollarSign className="h-5 w-5 text-[#51d2c1]" />
-                Revenue Sync
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">Sync daily revenue data from Dune query 5184711.</p>
-              <Button
-                onClick={testRevenueSync}
-                disabled={revenueLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {revenueLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Syncing Revenue...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Sync Revenue Data
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <RefreshCw className="h-5 w-5 text-[#51d2c1]" />
-                CMC Cron Test
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">Test the 10-minute CMC cron job manually.</p>
-              <Button
-                onClick={async () => {
-                  setCmcCronLoading(true)
-                  setCmcCronResult(null)
-                  try {
-                    const response = await fetch("/api/cron/cmc-sync", { method: "POST" })
-                    const result = await response.json()
-                    setCmcCronResult({
-                      success: response.ok,
-                      message: result.message || (response.ok ? "CMC cron completed" : "CMC cron failed"),
-                      timestamp: new Date().toISOString(),
-                      result: result,
-                      error: result.error,
-                    })
-                  } catch (error) {
-                    setCmcCronResult({
-                      success: false,
-                      message: "Network error",
-                      timestamp: new Date().toISOString(),
-                      error: error instanceof Error ? error.message : "Unknown error",
-                    })
-                  } finally {
-                    setCmcCronLoading(false)
-                  }
-                }}
-                disabled={cmcCronLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {cmcCronLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Testing CMC Cron...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Test CMC Cron
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <RefreshCw className="h-5 w-5 text-[#51d2c1]" />
-                HyperEVM Memes Test
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">Test the 5-minute HyperEVM memes refresh cron job manually.</p>
-              <Button
-                onClick={async () => {
-                  setTokenRefreshLoading(true)
-                  setTokenRefreshResult(null)
-                  try {
-                    const response = await fetch("/api/cron/token-refresh", { method: "POST" })
-                    const result = await response.json()
-                    setTokenRefreshResult({
-                      success: response.ok,
-                      message: result.message || (response.ok ? "Token refresh completed" : "Token refresh failed"),
-                      timestamp: new Date().toISOString(),
-                      result: result,
-                      error: result.error,
-                    })
-                  } catch (error) {
-                    setTokenRefreshResult({
-                      success: false,
-                      message: "Network error",
-                      timestamp: new Date().toISOString(),
-                      error: error instanceof Error ? error.message : "Unknown error",
-                    })
-                  } finally {
-                    setTokenRefreshLoading(false)
-                  }
-                }}
-                disabled={tokenRefreshLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {tokenRefreshLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Testing Memes Refresh...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Test Memes Refresh
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <RefreshCw className="h-5 w-5 text-[#51d2c1]" />
-                Memes Metrics Test
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-[#868d8f] text-sm mb-4">
-                Test the hourly memes metrics aggregation cron job manually.
-              </p>
-              <Button
-                onClick={async () => {
-                  setTokenRefreshLoading(true)
-                  setTokenRefreshResult(null)
-                  try {
-                    const response = await fetch("/api/cron/memes-metrics", { method: "POST" })
-                    const result = await response.json()
-                    setTokenRefreshResult({
-                      success: response.ok,
-                      message: result.message || (response.ok ? "Memes metrics completed" : "Memes metrics failed"),
-                      timestamp: new Date().toISOString(),
-                      result: result,
-                      error: result.error,
-                    })
-                  } catch (error) {
-                    setTokenRefreshResult({
-                      success: false,
-                      message: "Network error",
-                      timestamp: new Date().toISOString(),
-                      error: error instanceof Error ? error.message : "Unknown error",
-                    })
-                  } finally {
-                    setTokenRefreshLoading(false)
-                  }
-                }}
-                disabled={tokenRefreshLoading}
-                className="w-full bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1] transition-colors"
-              >
-                {tokenRefreshLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Testing Memes Metrics...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Test Memes Metrics
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
+        <div className="mb-8 p-4 bg-[#0f1a1f] border border-[#2d5a4f] rounded-lg">
+          <label htmlFor="debugPassword" className="block text-sm font-medium text-white mb-1">
+            Debug Password
+          </label>
+          <Input
+            id="debugPassword"
+            type="password"
+            value={debugPassword}
+            onChange={(e) => setDebugPassword(e.target.value)}
+            placeholder="Enter debug password"
+            className="bg-gray-800 border-[#2d5a4f] text-white placeholder-gray-500"
+          />
+          <p className="text-xs text-gray-400 mt-1">Required for most manual trigger operations.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-          <ResultCard
-            title="Hyperliquid Stats Sync Results"
-            result={duneResult}
-            icon={<Play className="h-5 w-5 text-[#51d2c1]" />}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          <TestUnitCard
+            title="Llama Revenue Sync"
+            description="Manually trigger the daily revenue data sync from DeFiLlama."
+            buttonText="Sync Llama Revenue"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/manual-revenue-sync",
+                setLlamaRevenueSyncLoading,
+                setLlamaRevenueSyncResult,
+                "Llama Revenue sync completed successfully.",
+                "Llama Revenue sync failed.",
+              )
+            }
+            isLoading={llamaRevenueSyncLoading}
+            result={llamaRevenueSyncResult}
+            icon={TrendingUp}
           />
-          <ResultCard
-            title="HyperEVM Sync Results"
-            result={duneExecutionResult}
-            icon={<Play className="h-5 w-5 text-[#51d2c1]" />}
+
+          <TestUnitCard
+            title="HyperEVM TVL Sync"
+            description="Manually trigger the HyperEVM TVL data sync from DeFiLlama."
+            buttonText="Sync HyperEVM TVL"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/manual-hyperevm-llama-sync", // Assuming this is the manual endpoint
+                setHyperEVMSyncLoading,
+                setHyperEVMSyncResult,
+                "HyperEVM TVL sync completed successfully.",
+                "HyperEVM TVL sync failed.",
+              )
+            }
+            isLoading={hyperEVMSyncLoading}
+            result={hyperEVMSyncResult}
+            icon={DatabaseZap} // New Icon
           />
-          <ResultCard
-            title="CMC Sync Results"
-            result={cmcResult}
-            icon={<DollarSign className="h-5 w-5 text-[#51d2c1]" />}
+
+          <TestUnitCard
+            title="Manual Dune Query Trigger (HL Stats)"
+            description="Manually trigger the main Hyperliquid Stats Dune query (ID 5184581) and record it for polling."
+            buttonText="Trigger HL Stats Dune Query"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/manual-dune-query-trigger",
+                setManualDuneTriggerLoading,
+                setManualDuneTriggerResult,
+                "Hyperliquid Stats Dune query triggered successfully.",
+                "Failed to trigger Hyperliquid Stats Dune query.",
+                true, // requiresPassword
+              )
+            }
+            isLoading={manualDuneTriggerLoading}
+            result={manualDuneTriggerResult}
+            icon={DatabaseZap} // Or another suitable icon like PlayCircle
           />
-          <ResultCard
-            title="Revenue Sync Results"
-            result={revenueResult}
-            icon={<DollarSign className="h-5 w-5 text-[#51d2c1]" />}
+
+          <TestUnitCard
+            title="CMC Price Sync"
+            description="Sync HYPE token price data from CoinMarketCap API."
+            buttonText="Sync CMC Data"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/cmc-sync",
+                setCmcSyncLoading,
+                setCmcSyncResult,
+                "CMC price sync completed successfully.",
+                "CMC price sync failed.",
+              )
+            }
+            isLoading={cmcSyncLoading}
+            result={cmcSyncResult}
+            icon={DollarSign}
           />
-          <ResultCard
-            title="CMC Cron Test Results"
+
+          <TestUnitCard
+            title="CMC Cron Test"
+            description="Test the 10-minute CMC price data cron job."
+            buttonText="Test CMC Cron"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/cron/cmc-sync", // This is a cron endpoint, ensure it can be POSTed to with password or adjust
+                setCmcCronLoading,
+                setCmcCronResult,
+                "CMC cron test completed successfully.",
+                "CMC cron test failed.",
+              )
+            }
+            isLoading={cmcCronLoading}
             result={cmcCronResult}
-            icon={<RefreshCw className="h-5 w-5 text-[#51d2c1]" />}
+            icon={RefreshCw}
           />
-          <ResultCard
-            title="HyperEVM Memes Test Results"
-            result={tokenRefreshResult}
-            icon={<RefreshCw className="h-5 w-5 text-[#51d2c1]" />}
+
+          <TestUnitCard
+            title="Memes Refresh Cron"
+            description="Test the 5-minute HyperEVM memes token data refresh cron job."
+            buttonText="Test Memes Refresh"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/cron/token-refresh",
+                setMemesRefreshLoading,
+                setMemesRefreshResult,
+                "Memes refresh completed successfully.",
+                "Memes refresh failed.",
+              )
+            }
+            isLoading={memesRefreshLoading}
+            result={memesRefreshResult}
+            icon={RefreshCw}
           />
-          <ResultCard
-            title="Memes Metrics Test Results"
-            result={tokenRefreshResult}
-            icon={<RefreshCw className="h-5 w-5 text-[#51d2c1]" />}
+
+          <TestUnitCard
+            title="Memes Metrics Cron"
+            description="Test the hourly memes metrics aggregation cron job."
+            buttonText="Test Memes Metrics"
+            onTrigger={() =>
+              handleApiCall(
+                "/api/cron/memes-metrics",
+                setMemesMetricsLoading,
+                setMemesMetricsResult,
+                "Memes metrics aggregation completed successfully.",
+                "Memes metrics aggregation failed.",
+              )
+            }
+            isLoading={memesMetricsLoading}
+            result={memesMetricsResult}
+            icon={BarChartBig} // New Icon
           />
         </div>
       </div>

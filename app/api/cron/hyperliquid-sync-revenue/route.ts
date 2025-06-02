@@ -91,7 +91,7 @@ async function upsertToSupabase(rows: any[], executionId: string) {
   return { inserted: rows.length, error: null }
 }
 
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   const executionId = uuidv4()
   console.log(`[${executionId}] Cron: Revenue sync job started.`)
 
