@@ -4,7 +4,7 @@ import type React from "react"
 import { useState, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Clock, Zap } from "lucide-react"
-import { formatDistanceToNow, format } from "date-fns"
+import { formatDistance } from "date-fns"
 
 interface MetricsCardProps {
   title: string
@@ -15,6 +15,8 @@ interface MetricsCardProps {
   showIndicator?: boolean
   tooltip?: string
   onClick?: () => void
+  active?: boolean // Add the active prop back
+  color?: string // Add color prop for the active state
   // Add these new props for refresh indicators
   updateFrequencyHours?: number
   lastUpdatedAt?: string | Date
@@ -30,13 +32,15 @@ export function MetricsCard({
   showIndicator = false,
   tooltip,
   onClick,
+  active = false,
+  color = "#20a67d",
   updateFrequencyHours,
   lastUpdatedAt,
   isRealtime = false,
 }: MetricsCardProps) {
   const [showTooltip, setShowTooltip] = useState(false)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
-  const iconRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
 
   const getRefreshText = () => {
     if (isRealtime) return null
@@ -50,25 +54,44 @@ export function MetricsCard({
   }
 
   const getRefreshTooltip = () => {
-    if (isRealtime) return "Real-time data"
+    if (isRealtime)
+      return (
+        <div>
+          <div className="font-bold mb-1">Real-time data</div>
+          <div>Updates continuously</div>
+        </div>
+      )
 
     if (!lastUpdatedAt || !updateFrequencyHours) return ""
 
     try {
       const lastUpdate = new Date(lastUpdatedAt)
-      // Calculate next refresh: last refresh time + update frequency
-      const nextUpdate = new Date(lastUpdate.getTime() + updateFrequencyHours * 60 * 60 * 1000)
       const now = new Date()
 
-      const lastRefreshedText = format(lastUpdate, "EEEE, MMM d 'at' h:mm a")
+      // Format for refresh frequency
+      let frequencyText = ""
+      if (updateFrequencyHours >= 24) {
+        const days = Math.floor(updateFrequencyHours / 24)
+        frequencyText = `${days} ${days === 1 ? "day" : "days"}`
+      } else {
+        frequencyText = `${updateFrequencyHours} ${updateFrequencyHours === 1 ? "hour" : "hours"}`
+      }
 
-      // Calculate time until next refresh
-      const timeUntilNext = nextUpdate > now ? formatDistanceToNow(nextUpdate, { addSuffix: false }) : "overdue"
+      // Format for last refresh - simplified to "about X ago"
+      const lastRefreshText = formatDistance(lastUpdate, now, { addSuffix: true })
+
+      // Calculate next refresh time
+      const nextUpdate = new Date(lastUpdate.getTime() + updateFrequencyHours * 60 * 60 * 1000)
+
+      // Format for next refresh - simplified
+      const timeUntilNext =
+        nextUpdate > now ? `in about ${formatDistance(now, nextUpdate, { addSuffix: false })}` : "overdue"
 
       return (
         <div>
-          <div>Last refresh was {lastRefreshedText}</div>
-          <div>Next refresh is in {timeUntilNext}</div>
+          <div className="font-bold mb-1">Refreshes every {frequencyText}</div>
+          <div>Last refresh was {lastRefreshText}</div>
+          <div>Next refresh {timeUntilNext}</div>
         </div>
       )
     } catch (error) {
@@ -78,11 +101,11 @@ export function MetricsCard({
   }
 
   const handleMouseEnter = () => {
-    if (iconRef.current) {
-      const rect = iconRef.current.getBoundingClientRect()
+    if (cardRef.current) {
+      const rect = cardRef.current.getBoundingClientRect()
       setTooltipPosition({
-        x: rect.right - 200, // Position tooltip to the right edge minus tooltip width
-        y: rect.top - 10, // Position above the icon with some margin
+        x: rect.right - 220, // Position tooltip at bottom right
+        y: rect.bottom + 10, // Position below the card
       })
       setShowTooltip(true)
     }
@@ -98,34 +121,36 @@ export function MetricsCard({
   return (
     <>
       <Card
-        className={`w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] ${showIndicator ? "relative before:absolute before:inset-0.5 before:rounded-lg before:border border-[#20a67d] before:pointer-events-none" : ""} ${onClick ? "cursor-pointer" : ""}`}
+        ref={cardRef}
+        className={`w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] relative ${
+          active ? "before:absolute before:inset-0.5 before:rounded-lg before:border before:pointer-events-none" : ""
+        } ${onClick ? "cursor-pointer" : ""}`}
+        style={
+          active
+            ? {
+                borderColor: `${color}50`,
+                "--tw-border-opacity": "0.3",
+              }
+            : {}
+        }
         onClick={onClick}
         title={tooltip}
       >
+        {/* Active dot positioned absolutely in line with title */}
+        {active && (
+          <div
+            className="absolute top-[18px] right-4 w-2 h-2 rounded-full z-10"
+            style={{ backgroundColor: color }}
+          ></div>
+        )}
+
         <div className="px-4 py-3 flex items-center justify-between">
-          <h3 className="text-[#a0a8aa] text-xs font-medium flex items-center gap-2">
-            {showIndicator && <div className="w-2 h-2 rounded-full bg-[#20a67d]"></div>}
-            {title}
+          <h3 className="text-[#a0a8aa] text-xs font-medium">
+            <span className="block sm:hidden">
+              {title === "Daily Revenue" ? "Daily Rev." : title === "Annualized Revenue" ? "Annualized Rev." : title}
+            </span>
+            <span className="hidden sm:block">{title}</span>
           </h3>
-          {(isRealtime || refreshText) && (
-            <div
-              ref={iconRef}
-              className="flex items-center gap-1 text-[#868d8f]"
-              onMouseEnter={handleMouseEnter}
-              onMouseLeave={handleMouseLeave}
-            >
-              {isRealtime ? (
-                <>
-                  <Zap className="h-3 w-3 text-[#51d2c1]" />
-                </>
-              ) : (
-                <>
-                  <Clock className="h-3 w-3" />
-                  <span className="text-[10px] font-mono">{refreshText}</span>
-                </>
-              )}
-            </div>
-          )}
         </div>
         <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
           {isLoading ? (
@@ -153,6 +178,23 @@ export function MetricsCard({
             </div>
           )}
         </CardContent>
+        {/* Clock/refresh indicator positioned aligned with subtext with padding */}
+        {(isRealtime || refreshText) && (
+          <div
+            className="absolute bottom-[18px] right-4 flex items-center gap-1 text-[#868d8f]"
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          >
+            {isRealtime ? (
+              <Zap className="h-3 w-3 text-[#51d2c1]" />
+            ) : (
+              <>
+                <Clock className="h-3 w-3" />
+                <span className="text-[10px] font-mono">{refreshText}</span>
+              </>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Tooltip rendered outside the card using fixed positioning */}
@@ -162,7 +204,6 @@ export function MetricsCard({
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
-            transform: "translateY(-100%)",
           }}
         >
           {refreshTooltip}

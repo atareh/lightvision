@@ -163,7 +163,7 @@ export default function HeroMetrics() {
         ) : (
           "TO DO"
         ),
-        change: duneLoading ? "" : duneData ? formatNetflow(duneData.netflow) : "",
+        change: duneLoading ? "" : duneData ? formatNetflow(duneData.netflow).replace(/^-/, "▼ ") : "",
         isPositive: duneData ? duneData.netflow >= 0 : true,
         isLoading: duneLoading,
         color: "#20a67d",
