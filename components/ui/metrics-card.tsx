@@ -46,10 +46,6 @@ export function MetricsCard({
     if (isRealtime) return null
     if (!updateFrequencyHours) return null
 
-    if (updateFrequencyHours >= 24) {
-      const days = Math.floor(updateFrequencyHours / 24)
-      return `${days}D`
-    }
     return `${updateFrequencyHours}H`
   }
 
@@ -69,13 +65,7 @@ export function MetricsCard({
       const now = new Date()
 
       // Format for refresh frequency
-      let frequencyText = ""
-      if (updateFrequencyHours >= 24) {
-        const days = Math.floor(updateFrequencyHours / 24)
-        frequencyText = `${days} ${days === 1 ? "day" : "days"}`
-      } else {
-        frequencyText = `${updateFrequencyHours} ${updateFrequencyHours === 1 ? "hour" : "hours"}`
-      }
+      const frequencyText = `${updateFrequencyHours}H`
 
       // Format for last refresh - simplified to "about X ago"
       const lastRefreshText = formatDistance(lastUpdate, now, { addSuffix: true })

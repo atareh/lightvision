@@ -270,8 +270,8 @@ export default function HyperEVMTokenList() {
                 <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] cursor-pointer">
                   <div className="px-4 py-3 flex items-center justify-between">
                     <h3 className="text-[#a0a8aa] text-xs font-medium">
-                      <span className="sm:hidden">24h Volume</span>
-                      <span className="hidden sm:inline">24h Volume</span>
+                      <span className="sm:hidden">24H Volume</span>
+                      <span className="hidden sm:inline">24H Volume</span>
                     </h3>
                   </div>
                   <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { checkAndUpdateLiquidityStatus, getActiveLiquidityTokens } from "@/lib/liquidity-filter"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -47,38 +48,30 @@ async function handleTokenRefresh(request: NextRequest, requireAuth: boolean) {
       }
     }
 
-    // Get all enabled tokens from database
-    console.log(`📋 [${executionId}] Fetching enabled tokens from database...`)
+    // Get only active tokens (enabled=true AND low_liquidity=false)
+    console.log(`📋 [${executionId}] Fetching active tokens (sufficient liquidity) from database...`)
     const dbFetchStart = Date.now()
 
-    const { data: tokens, error: fetchError } = await supabase
-      .from("tokens")
-      .select("contract_address")
-      .eq("enabled", true)
-
+    const contractAddresses = await getActiveLiquidityTokens()
     const dbFetchDuration = Date.now() - dbFetchStart
-
-    if (fetchError) {
-      console.error(`❌ [${executionId}] DATABASE ERROR: Failed to fetch tokens: ${fetchError.message}`)
-      throw new Error(`Failed to fetch tokens: ${fetchError.message}`)
-    }
 
     console.log(`✅ [${executionId}] Database fetch completed in ${dbFetchDuration}ms`)
 
-    if (!tokens || tokens.length === 0) {
-      console.log(`⚠️ [${executionId}] No enabled tokens found`)
+    if (!contractAddresses || contractAddresses.length === 0) {
+      console.log(`⚠️ [${executionId}] No active tokens found (all may be below liquidity threshold)`)
       return NextResponse.json({
         success: true,
-        message: "No enabled tokens to refresh",
+        message: "No active tokens to refresh (liquidity filter applied)",
         execution_id: executionId,
         tokens_processed: 0,
       })
     }
 
-    console.log(`📋 [${executionId}] Found ${tokens.length} enabled tokens to refresh`)
+    console.log(
+      `📋 [${executionId}] Found ${contractAddresses.length} active tokens to refresh (liquidity filter applied)`,
+    )
 
     // Chunk tokens into smaller batches of 5 (very conservative)
-    const contractAddresses = tokens.map((t) => t.contract_address)
     const batches = chunkArray(contractAddresses, 5)
 
     console.log(`📦 [${executionId}] Processing ${batches.length} batches`)
@@ -87,6 +80,7 @@ async function handleTokenRefresh(request: NextRequest, requireAuth: boolean) {
     let totalErrors = 0
     let supabaseOperations = 0
     let dexscreenerCalls = 0
+    let liquidityUpdates = 0
     const results = []
     const errorDetails = []
 
@@ -111,6 +105,7 @@ async function handleTokenRefresh(request: NextRequest, requireAuth: boolean) {
         totalErrors += batchResult.errors
         supabaseOperations += batchResult.supabaseOps || 0
         dexscreenerCalls += batchResult.dexscreenerCalls || 0
+        liquidityUpdates += batchResult.liquidityUpdates || 0
 
         if (batchResult.errorDetails && batchResult.errorDetails.length > 0) {
           errorDetails.push(...batchResult.errorDetails)
@@ -167,6 +162,7 @@ async function handleTokenRefresh(request: NextRequest, requireAuth: boolean) {
 🔢 Success Rate: ${totalProcessed > 0 ? Math.round((totalProcessed / (totalProcessed + totalErrors)) * 100) : 0}%
 🗄️ Database Operations: ${supabaseOperations}
 🌐 DexScreener API Calls: ${dexscreenerCalls}
+💧 Liquidity Updates: ${liquidityUpdates}
 ==============================================
     `)
 
@@ -195,13 +191,14 @@ ${errorDetails
     return NextResponse.json({
       success,
       execution_id: executionId,
-      message: `Token refresh completed: ${totalProcessed} processed, ${totalErrors} errors`,
+      message: `Token refresh completed: ${totalProcessed} processed, ${totalErrors} errors, ${liquidityUpdates} liquidity updates`,
       timestamp: new Date().toISOString(),
       duration_ms: duration,
       tokens_processed: totalProcessed,
       errors: totalErrors,
       supabase_operations: supabaseOperations,
       dexscreener_calls: dexscreenerCalls,
+      liquidity_updates: liquidityUpdates,
       batches_processed: results.length,
       results,
       error_details: errorDetails.length > 0 ? errorDetails : undefined,
@@ -258,11 +255,13 @@ async function updateTokenData(pair: any, executionId: string) {
   }
 
   let supabaseOps = 0
+  let liquidityUpdates = 0
   const tokenUpdateStart = Date.now()
   const operations = {
     fetchExisting: 0,
     upsertToken: 0,
     insertMetrics: 0,
+    liquidityCheck: 0,
     errors: [],
   }
 
@@ -394,6 +393,7 @@ async function updateTokenData(pair: any, executionId: string) {
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     // Insert new metrics record (time-series data)
+    const liquidityUsd = pair.liquidity?.usd ? Number.parseFloat(pair.liquidity.usd) : null
     const metricsData = {
       contract_address: baseToken.address,
       price_usd: pair.priceUsd ? Number.parseFloat(pair.priceUsd) : null,
@@ -402,7 +402,7 @@ async function updateTokenData(pair: any, executionId: string) {
       price_change_30m: pair.priceChange?.h1 ? Number.parseFloat(pair.priceChange.h1) : null,
       price_change_24h: pair.priceChange?.h24 ? Number.parseFloat(pair.priceChange.h24) : null,
       volume_24h: pair.volume?.h24 ? Number.parseFloat(pair.volume.h24) : null,
-      liquidity_usd: pair.liquidity?.usd ? Number.parseFloat(pair.liquidity.usd) : null,
+      liquidity_usd: liquidityUsd,
       recorded_at: new Date().toISOString(),
     }
 
@@ -425,14 +425,25 @@ async function updateTokenData(pair: any, executionId: string) {
       throw new Error(`Token metrics insert failed: ${metricsError.message}`)
     }
 
-    const totalDuration = Date.now() - tokenUpdateStart
     console.log(
       `✅ [${executionId}] Successfully updated metrics for ${baseToken.symbol} in ${operations.insertMetrics}ms`,
     )
+
+    // Check and update liquidity status
+    const liquidityStart = Date.now()
+    const liquidityUpdated = await checkAndUpdateLiquidityStatus(baseToken.address, liquidityUsd, executionId)
+    operations.liquidityCheck = Date.now() - liquidityStart
+
+    if (liquidityUpdated) {
+      liquidityUpdates++
+    }
+
+    const totalDuration = Date.now() - tokenUpdateStart
     console.log(`✅ [${executionId}] Total token update for ${baseToken.symbol} completed in ${totalDuration}ms`)
 
     return {
       supabaseOps,
+      liquidityUpdates,
       operations,
       duration: totalDuration,
     }
@@ -448,6 +459,7 @@ async function updateTokenData(pair: any, executionId: string) {
 
     return {
       supabaseOps,
+      liquidityUpdates,
       operations,
       error: errorMsg,
       duration: Date.now() - tokenUpdateStart,
@@ -469,6 +481,7 @@ async function processBatch(batch: string[], executionId: string) {
   let processed = 0
   let errors = 0
   let totalSupabaseOps = 0
+  let totalLiquidityUpdates = 0
   let dexscreenerCalls = 0
   const errorDetails = []
   const tokenResults = []
@@ -560,6 +573,7 @@ async function processBatch(batch: string[], executionId: string) {
         errors: batch.length,
         message: "No pairs found",
         supabaseOps: 0,
+        liquidityUpdates: 0,
         dexscreenerCalls,
         errorDetails,
       }
@@ -573,10 +587,11 @@ async function processBatch(batch: string[], executionId: string) {
         const dbDuration = Date.now() - dbStartTime
 
         console.log(
-          `⏱️ [${executionId}] Database operations for ${pair.baseToken?.symbol} took ${dbDuration}ms (${result.supabaseOps} ops)`,
+          `⏱️ [${executionId}] Database operations for ${pair.baseToken?.symbol} took ${dbDuration}ms (${result.supabaseOps} ops, ${result.liquidityUpdates} liquidity updates)`,
         )
 
         totalSupabaseOps += result.supabaseOps
+        totalLiquidityUpdates += result.liquidityUpdates
         processed++
 
         tokenResults.push({
@@ -584,6 +599,7 @@ async function processBatch(batch: string[], executionId: string) {
           address: pair.baseToken?.address,
           duration: dbDuration,
           operations: result.operations,
+          liquidityUpdates: result.liquidityUpdates,
         })
 
         if (result.error || (result.operations && result.operations.errors && result.operations.errors.length > 0)) {
@@ -639,6 +655,7 @@ async function processBatch(batch: string[], executionId: string) {
       errors: batch.length,
       error: error instanceof Error ? error.message : "Unknown error",
       supabaseOps: totalSupabaseOps,
+      liquidityUpdates: totalLiquidityUpdates,
       dexscreenerCalls,
       errorDetails,
       tokenResults,
@@ -647,7 +664,7 @@ async function processBatch(batch: string[], executionId: string) {
 
   const batchDuration = Date.now() - batchStartTime
   console.log(
-    `✅ [${executionId}] Batch completed in ${batchDuration}ms: ${processed} processed, ${errors} errors, ${totalSupabaseOps} DB ops`,
+    `✅ [${executionId}] Batch completed in ${batchDuration}ms: ${processed} processed, ${errors} errors, ${totalSupabaseOps} DB ops, ${totalLiquidityUpdates} liquidity updates`,
   )
 
   return {
@@ -655,6 +672,7 @@ async function processBatch(batch: string[], executionId: string) {
     processed,
     errors,
     supabaseOps: totalSupabaseOps,
+    liquidityUpdates: totalLiquidityUpdates,
     dexscreenerCalls,
     duration: batchDuration,
     errorDetails: errorDetails.length > 0 ? errorDetails : undefined,

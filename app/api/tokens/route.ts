@@ -7,8 +7,12 @@ export async function GET() {
   try {
     console.log("🔍 Starting tokens API request...")
 
-    // Get all enabled tokens
-    const { data: tokens, error: tokensError } = await supabase.from("tokens").select("*").eq("enabled", true)
+    // Get all enabled tokens with sufficient liquidity (exclude low_liquidity tokens)
+    const { data: tokens, error: tokensError } = await supabase
+      .from("tokens")
+      .select("*")
+      .eq("enabled", true)
+      .eq("low_liquidity", false) // Only get tokens with sufficient liquidity
 
     if (tokensError) {
       console.error("❌ Tokens query error:", tokensError)
@@ -22,14 +26,14 @@ export async function GET() {
       )
     }
 
-    console.log(`📋 Found ${tokens?.length || 0} enabled tokens`)
+    console.log(`📋 Found ${tokens?.length || 0} enabled tokens with sufficient liquidity`)
 
     if (!tokens || tokens.length === 0) {
       return NextResponse.json({
         tokens: [],
         count: 0,
         last_updated: new Date().toISOString(),
-        message: "No tokens found. Add some tokens first.",
+        message: "No tokens found with sufficient liquidity. Add some tokens first.",
       })
     }
 
@@ -88,7 +92,7 @@ export async function GET() {
       }
     }
 
-    console.log(`✅ Successfully processed ${tokensWithMetrics.length} tokens`)
+    console.log(`✅ Successfully processed ${tokensWithMetrics.length} tokens with sufficient liquidity`)
     return formatTokenResponse(tokensWithMetrics)
   } catch (error) {
     console.error("❌ Unexpected API error:", error)
@@ -109,7 +113,7 @@ function formatTokenResponse(tokens: any[]) {
       tokens: [],
       count: 0,
       last_updated: new Date().toISOString(),
-      message: "No tokens found. Add some tokens first.",
+      message: "No tokens found with sufficient liquidity. Add some tokens first.",
     })
   }
 
@@ -136,5 +140,6 @@ function formatTokenResponse(tokens: any[]) {
     tokens: processedTokens,
     count: tokens.length,
     last_updated: lastUpdated.toISOString(),
+    liquidity_filtered: true, // Indicate that liquidity filtering is active
   })
 }
