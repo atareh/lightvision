@@ -1,113 +1,148 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { v4 as uuidv4 } from "uuid"
-import { rateLimit } from "@/lib/rate-limit" // Assuming you have this utility
+import { rateLimit } from "@/lib/rate-limit"
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-// Create a rate limiter that allows 2 requests per minute
+if (!supabaseUrl || !supabaseServiceRoleKey) {
+  console.error("Cron: Missing Supabase URL or Service Role Key")
+  // This won't stop the module from loading but will prevent Supabase client creation.
+  // Consider throwing an error here if you want to halt deployment/startup on missing critical env vars.
+}
+
+const supabase = createClient(supabaseUrl!, supabaseServiceRoleKey!)
+
 const limiter = rateLimit({
-  uniqueTokenPerInterval: 2, // Max 2 unique requests per interval
-  interval: 60000, // 1 minute
+  uniqueTokenPerInterval: 2,
+  interval: 60000,
 })
 
 interface LlamaFeeData {
   totalDataChartBreakdown: [number, { hyperliquid?: { [key: string]: number } }][]
 }
 
-async function fetchLlamaRevenue() {
+async function fetchLlamaRevenue(executionId: string) {
+  console.log(`[${executionId}] Cron: Attempting to fetch Llama revenue data.`)
   const response = await fetch("https://api.llama.fi/summary/fees/Hyperliquid")
+  console.log(`[${executionId}] Cron: Llama API response status: ${response.status}`)
 
   if (!response.ok) {
+    const errorBody = await response.text()
+    console.error(
+      `[${executionId}] Cron: Failed to fetch from DeFiLlama API. Status: ${response.status}, Body: ${errorBody}`,
+    )
     throw new Error(`Failed to fetch from DeFiLlama API: ${response.status}`)
   }
-
-  return (await response.json()) as LlamaFeeData
+  const data = (await response.json()) as LlamaFeeData
+  console.log(
+    `[${executionId}] Cron: Successfully fetched Llama revenue data. Records: ${data.totalDataChartBreakdown?.length || 0}`,
+  )
+  return data
 }
 
 function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: string) {
-  // Process the data
+  console.log(
+    `[${executionId}] Cron: Transforming Llama data. Input records: ${rawData.totalDataChartBreakdown?.length}`,
+  )
+  if (!rawData.totalDataChartBreakdown || rawData.totalDataChartBreakdown.length === 0) {
+    console.warn(`[${executionId}] Cron: No data in totalDataChartBreakdown to transform.`)
+    return []
+  }
+
   const data = rawData.totalDataChartBreakdown.map(([timestamp, value]) => {
     const day = new Date(timestamp * 1000).toISOString().slice(0, 10)
     const revenue = value?.hyperliquid?.["Hyperliquid Spot Orderbook"] || 0
-
-    return {
-      day,
-      revenue,
-    }
+    return { day, revenue }
   })
 
-  // Compute 7-day moving average and annualized revenue
   const processedData = data.map((entry, idx, all) => {
     const window = all.slice(Math.max(0, idx - 6), idx + 1)
     const sum = window.reduce((acc, d) => acc + d.revenue, 0)
     const avg = window.length === 7 ? sum / 7 : null
-
     return {
       day: entry.day,
       revenue: entry.revenue,
       annualized_revenue: avg ? Math.round(avg * 365) : null,
       execution_id: executionId,
-      query_id: 999999, // Using a high number to distinguish Llama data from Dune queries
+      query_id: 999999, // Distinguish Llama data
     }
   })
-
+  console.log(`[${executionId}] Cron: Transformed data. Output records: ${processedData.length}`)
   return processedData
 }
 
-async function upsertToSupabase(rows: any[]) {
+async function upsertToSupabase(rows: any[], executionId: string) {
+  if (!rows || rows.length === 0) {
+    console.log(`[${executionId}] Cron: No rows to upsert to Supabase.`)
+    return { inserted: 0, error: null }
+  }
+  console.log(`[${executionId}] Cron: Attempting to upsert ${rows.length} rows to Supabase table 'daily_revenue'.`)
   const { data, error } = await supabase.from("daily_revenue").upsert(rows, {
-    onConflict: ["day"],
+    onConflict: "day", // Ensure 'day' is the correct unique constraint column
   })
 
   if (error) {
+    console.error(`[${executionId}] Cron: Failed to upsert to Supabase: ${error.message}`, error)
     throw new Error(`Failed to upsert to Supabase: ${error.message}`)
   }
-
-  return { inserted: rows.length }
+  console.log(`[${executionId}] Cron: Successfully upserted data to Supabase. Result:`, data) // Supabase upsert often returns null for data on success, count is more reliable from rows.length
+  return { inserted: rows.length, error: null }
 }
 
 export async function POST(req: Request) {
+  const executionId = uuidv4()
+  console.log(`[${executionId}] Cron: Revenue sync job started.`)
+
   try {
-    // Apply rate limiting
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || req.ip || "unknown_ip"
+    console.log(`[${executionId}] Cron: Applying rate limit for IP: ${clientIp}`)
     try {
-      await limiter.check(NextResponse, req.ip || "anonymous", 2) // 2 requests per minute
-    } catch {
+      await limiter.check(NextResponse, clientIp, 2)
+    } catch (rateLimitError) {
+      console.warn(`[${executionId}] Cron: Rate limit exceeded for IP ${clientIp}.`, rateLimitError)
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
     }
 
-    // Verify cron secret if provided in headers
     const authHeader = req.headers.get("authorization")
     if (!authHeader || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      console.warn("Unauthorized access attempt to cron endpoint")
-      // Add a small delay to slow down brute force attempts
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      console.warn(
+        `[${executionId}] Cron: Unauthorized access attempt. Auth header: ${authHeader ? "Present (mismatch)" : "Missing"}`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 1000)) // Small delay
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    console.log(`[${executionId}] Cron: Authorization successful.`)
 
-    // Generate a unique execution ID
-    const executionId = uuidv4()
-
-    // Fetch data from DeFiLlama
-    const rawData = await fetchLlamaRevenue()
-
-    // Transform and compute annualized revenue
+    const rawData = await fetchLlamaRevenue(executionId)
     const processedData = transformAndComputeAnnualized(rawData, executionId)
 
-    // Upsert to Supabase
-    const result = await upsertToSupabase(processedData)
+    if (processedData.length === 0) {
+      console.warn(`[${executionId}] Cron: No data processed. Skipping database upsert.`)
+      return NextResponse.json({
+        success: true,
+        execution_id: executionId,
+        message: "No data to process or upsert.",
+        inserted: 0,
+      })
+    }
 
+    const result = await upsertToSupabase(processedData, executionId)
+    console.log(`[${executionId}] Cron: Revenue sync job completed successfully. Inserted: ${result.inserted}`)
     return NextResponse.json({
       success: true,
       execution_id: executionId,
-      ...result,
+      inserted: result.inserted,
     })
-  } catch (error) {
-    console.error("Error in revenue sync:", error)
+  } catch (error: any) {
+    console.error(`[${executionId}] Cron: Error in revenue sync job: ${error.message}`, error)
     return NextResponse.json(
       {
         success: false,
-        error: "An error occurred during the sync process", // Don't expose detailed error messages
+        execution_id: executionId,
+        error: "An error occurred during the sync process",
+        details: error.message,
       },
       { status: 500 },
     )
