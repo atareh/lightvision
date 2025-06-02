@@ -20,6 +20,7 @@ import MobileTokenCard from "@/components/token-list/mobile-token-card" // Defau
 import PaginationControls from "@/components/token-list/pagination-controls"
 import TokenTable from "@/components/token-list/token-table" // Default import
 import { formatTVL, formatPrice, formatPercentageChange, formatAge } from "@/lib/utils"
+import MobilePagination from "@/components/token-list/mobile-pagination"
 
 const TOKENS_PER_PAGE = 10
 
@@ -436,6 +437,13 @@ export default function HyperEVMTokenList() {
                     />
                   ))}
                 </div>
+
+                {/* Add Mobile Pagination */}
+                {tokenData && tokenData.tokens && tokenData.tokens.length > 0 && (
+                  <div className="mt-6 md:hidden">
+                    <MobilePagination currentPage={currentPage} totalPages={totalPages} goToPage={goToPage} />
+                  </div>
+                )}
               </div>
             </>
           )}
