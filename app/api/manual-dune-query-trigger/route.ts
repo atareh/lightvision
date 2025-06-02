@@ -115,6 +115,22 @@ export async function POST(request: NextRequest) {
     }
 
     const queryIdToExecute = queryIdFromRequest ? Number(queryIdFromRequest) : HYPERLIQUID_STATS_QUERY_ID
+
+    if (queryIdToExecute === 5184581) {
+      // HYPERLIQUID_STATS_QUERY_ID is 5184581
+      const message = `Query ${queryIdToExecute} is now handled by webhook. Manual trigger via this endpoint is deprecated for this query.`
+      console.log(`[${manualExecutionId}] ⚠️ ${message}`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: message,
+          status: "DEPRECATED_WEBHOOK_ACTIVE",
+          manual_execution_id: manualExecutionId,
+        },
+        { status: 400 },
+      )
+    }
+
     const queryName =
       queryIdToExecute === HYPERLIQUID_STATS_QUERY_ID ? "Hyperliquid Stats" : `Custom Query ${queryIdToExecute}`
 

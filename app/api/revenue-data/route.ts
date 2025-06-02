@@ -98,7 +98,7 @@ export async function GET(request: Request) {
   }
 }
 
-// KEEPING ORIGINAL PROCESSING FUNCTION
+// FIXED PROCESSING FUNCTION - Use actual database timestamps
 function processRevenueData(rows: any[]) {
   if (!rows || rows.length === 0) {
     return {
@@ -133,12 +133,15 @@ function processRevenueData(rows: any[]) {
     dailyChange = currentRevenue - previousRevenue
   }
 
+  // Use the actual database timestamp instead of current time
+  const actualLastUpdated = latestRecord.updated_at || latestRecord.created_at || new Date().toISOString()
+
   return {
     daily_revenue: currentRevenue,
     daily_change: dailyChange,
     previous_day_revenue: previousRecord ? previousRecord.revenue || 0 : 0,
     annualized_revenue: latestRecord.annualized_revenue || 0,
-    last_updated: new Date().toISOString(),
+    last_updated: actualLastUpdated, // ← Fixed: Use actual DB timestamp
     latest_day: latestRecord.day,
     previous_day: previousRecord ? previousRecord.day : null,
     data_source: latestRecord.query_id === 999999 ? "DeFiLlama" : "Dune",

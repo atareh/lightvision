@@ -7,6 +7,15 @@ export async function POST() {
   try {
     console.log("🚀 Starting Dune sync process...")
 
+    const queryIdToExecute = 5184581 // This endpoint is hardcoded for this query ID.
+
+    if (queryIdToExecute === 5184581) {
+      const message =
+        "Query 5184581 is now handled by webhook. Manual trigger via this endpoint is deprecated for this query."
+      console.log(`⚠️ ${message}`)
+      return NextResponse.json({ success: false, error: message, status: "DEPRECATED_WEBHOOK_ACTIVE" }, { status: 400 })
+    }
+
     const duneApiKey = process.env.DUNE_API_KEY
     const queryId = 5184581
 

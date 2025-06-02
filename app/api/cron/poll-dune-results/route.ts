@@ -171,6 +171,31 @@ export async function GET(request: NextRequest) {
     for (const execution of pendingExecutions) {
       const executionLogPrefix = `ExecID ${execution.execution_id} (Query ${execution.query_id}):`
       try {
+        if (execution.query_id === 5184581) {
+          const skipMessage = `[${cronJobExecutionId}] ExecID ${execution.execution_id} (Query 5184581): Skipping polling as this query is now handled by webhook.`
+          console.log(skipMessage)
+          await logCronProgress(cronJobExecutionId, CRON_TYPE, skipMessage)
+          // Optionally, mark as processed if we are certain no more polling is needed for any old entries.
+          // This depends on whether there could be very old, unprocessed entries you want to clear.
+          // For safety, just skipping is fine. If you want to mark old ones as 'processed' to clear them from queue:
+          /*
+          await supabase
+            .from("dune_executions")
+            .update({
+              status: "SKIPPED_WEBHOOK_ACTIVE", // Custom status
+              processed: true,
+              updated_at: new Date().toISOString(),
+              error_message: "Skipped due to active webhook integration for this query ID.",
+            })
+            .eq("execution_id", execution.execution_id);
+          */
+          processingDetails.push({
+            execution_id: execution.execution_id,
+            status: "SKIPPED_WEBHOOK_ACTIVE",
+            query_id: execution.query_id,
+          })
+          continue // Skip to the next execution
+        }
         // Check if execution is stale
         if (
           new Date(execution.created_at) < new Date(staleThreshold) &&

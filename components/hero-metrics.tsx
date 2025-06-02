@@ -14,6 +14,12 @@ export default function HeroMetrics() {
   const { data: duneData, loading: duneLoading } = useDuneData()
   const { data: revenueData, loading: revenueLoading } = useRevenueData()
 
+  // Debug logging
+  useEffect(() => {
+    console.log("Revenue data:", revenueData)
+    console.log("Dune data:", duneData)
+  }, [revenueData, duneData])
+
   const [activeMetric, setActiveMetric] = useState<"tvl" | "dailyRevenue" | "annualizedRevenue" | "wallets">("tvl")
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 }) // Initialize with 0
@@ -310,6 +316,17 @@ export default function HeroMetrics() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:flex lg:flex-col lg:justify-between lg:w-[200px] lg:h-[528px] lg:gap-0">
         {(Object.keys(metricsConfig) as Array<keyof typeof metricsConfig>).map((metricId) => {
           const metric = metricsConfig[metricId]
+
+          // Get the appropriate lastUpdatedAt value
+          const getLastUpdatedAt = () => {
+            if (metricId === "tvl" || metricId === "wallets") {
+              return duneData?.last_updated
+            } else {
+              // For revenue metrics, use a fallback if last_updated_at doesn't exist
+              return revenueData?.last_updated_at || revenueData?.last_updated || new Date().toISOString()
+            }
+          }
+
           return (
             <MetricsCard
               key={metricId}
@@ -321,6 +338,10 @@ export default function HeroMetrics() {
               active={activeMetric === metricId}
               onClick={() => setActiveMetric(metricId)}
               color={metric.color}
+              // Add refresh indicator props
+              updateFrequencyHours={metricId === "tvl" || metricId === "wallets" ? 4 : 24}
+              lastUpdatedAt={getLastUpdatedAt()}
+              isRealtime={false}
             />
           )
         })}

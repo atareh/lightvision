@@ -33,47 +33,19 @@ export async function GET(request: NextRequest) {
     let cmcSyncSuccess = false
 
     // TRIGGER Hyperliquid Stats Dune sync (main TVL/Wallets query)
-    try {
-      console.log(
-        `📊 [${executionId}] Triggering Hyperliquid Stats Dune sync (Query ID: ${HYPERLIQUID_STATS_QUERY_ID})...`,
-      )
-      await logCronProgress(
-        executionId,
-        `Triggering Dune sync for Query ID ${HYPERLIQUID_STATS_QUERY_ID}`,
-        "daily_hyperliquid_stats_sync",
-      )
-
-      const duneResult = await triggerSpecificDuneQuery(executionId, HYPERLIQUID_STATS_QUERY_ID, "Hyperliquid Stats")
-      results.hyperliquid_stats_sync = duneResult
-
-      if (duneResult.success) {
-        duneQuerySuccess = true
-        console.log(
-          `✅ [${executionId}] Hyperliquid Stats Dune sync triggered successfully (Execution: ${duneResult.execution_id})`,
-        )
-        await logCronProgress(
-          executionId,
-          `Hyperliquid Stats Dune sync triggered: ${duneResult.execution_id}`,
-          "daily_hyperliquid_stats_sync",
-        )
-      } else {
-        console.log(`❌ [${executionId}] Hyperliquid Stats Dune sync trigger failed:`, duneResult.error)
-        await logCronProgress(
-          executionId,
-          `Hyperliquid Stats Dune sync trigger failed: ${duneResult.error}`,
-          "daily_hyperliquid_stats_sync",
-        )
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error"
-      console.error(`❌ [${executionId}] Hyperliquid Stats Dune sync trigger exception:`, error)
-      results.hyperliquid_stats_sync = { success: false, error: errorMsg }
-      await logCronProgress(
-        executionId,
-        `Hyperliquid Stats Dune sync trigger exception: ${errorMsg}`,
-        "daily_hyperliquid_stats_sync",
-      )
+    results.hyperliquid_stats_sync = {
+      success: true,
+      message: "Query 5184581 (Hyperliquid Stats) is now handled by webhook. Trigger skipped.",
     }
+    duneQuerySuccess = true // Mark as success as it's intentionally skipped.
+    console.log(
+      `[${executionId}] Hyperliquid Stats Dune sync (Query ID: ${HYPERLIQUID_STATS_QUERY_ID}) is handled by webhook. Trigger skipped.`,
+    )
+    await logCronProgress(
+      executionId,
+      `Hyperliquid Stats Dune sync (Query ID ${HYPERLIQUID_STATS_QUERY_ID}) trigger skipped, handled by webhook.`,
+      "daily_hyperliquid_stats_sync",
+    )
 
     // CMC sync can still run as it's independent
     try {
