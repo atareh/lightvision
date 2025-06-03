@@ -7,14 +7,13 @@ export async function GET() {
   try {
     console.log("🔍 Starting tokens API request...")
 
-    // Get all enabled tokens with sufficient liquidity and volume
-    const { data: tokens, error: tokensError } = await supabase
+    const { data: tokensFromDb, error: tokensError } = await supabase
       .from("tokens")
       .select("*")
       .eq("enabled", true)
       .eq("low_liquidity", false)
       .eq("low_volume", false)
-      .eq("is_hidden", false) // <-- ADD THIS LINE
+      .eq("is_hidden", false)
 
     if (tokensError) {
       console.error("❌ Tokens query error:", tokensError)
@@ -28,25 +27,24 @@ export async function GET() {
       )
     }
 
-    console.log(`📋 Found ${tokens?.length || 0} enabled tokens with sufficient liquidity and volume`)
+    console.log(`📋 Found ${tokensFromDb?.length || 0} tokens from DB meeting initial criteria.`)
 
-    if (!tokens || tokens.length === 0) {
+    if (!tokensFromDb || tokensFromDb.length === 0) {
       return NextResponse.json({
         tokens: [],
         count: 0,
         last_updated: new Date().toISOString(),
-        message: "No tokens found with sufficient liquidity and volume. Add some tokens first.",
+        message:
+          "No tokens found meeting initial database criteria (enabled, sufficient liquidity/volume, not hidden).",
       })
     }
 
-    // Get latest metrics for each token
     const tokensWithMetrics = []
 
-    for (const token of tokens) {
+    for (const token of tokensFromDb) {
       try {
-        console.log(`🔍 Fetching metrics for token ${token.contract_address}...`)
+        // console.log(`🔍 Fetching metrics for token ${token.contract_address}...`) // Can be noisy
 
-        // Get the most recent metrics for this token from our database
         const { data: latestMetrics, error: metricsError } = await supabase
           .from("token_metrics")
           .select("*")
@@ -59,10 +57,8 @@ export async function GET() {
           console.error(`❌ Error fetching metrics for token ${token.contract_address}:`, metricsError)
         }
 
-        // Combine token metadata with latest metrics from our database
         tokensWithMetrics.push({
           ...token,
-          // Add metrics fields (will be null if no metrics exist yet)
           price_usd: latestMetrics?.price_usd || null,
           market_cap: latestMetrics?.market_cap || null,
           fdv: latestMetrics?.fdv || null,
@@ -70,17 +66,15 @@ export async function GET() {
           liquidity_usd: latestMetrics?.liquidity_usd || null,
           holder_count: latestMetrics?.holder_count || null,
           price_change_30m: latestMetrics?.price_change_30m || null,
-          price_change_24h: latestMetrics?.price_change_24h || null,
+          price_change_24h: latestMetrics?.price_change_24h || null, // This is the key field
           recorded_at: latestMetrics?.recorded_at || null,
         })
 
-        console.log(`✅ Processed token ${token.symbol || token.contract_address}`)
+        // console.log(`✅ Processed token ${token.symbol || token.contract_address}`) // Can be noisy
       } catch (error) {
         console.error(`❌ Unexpected error processing token ${token.contract_address}:`, error)
-
-        // Still include the token but without metrics
         tokensWithMetrics.push({
-          ...token,
+          ...token, // Still include token info but with null metrics
           price_usd: null,
           market_cap: null,
           fdv: null,
@@ -93,12 +87,21 @@ export async function GET() {
         })
       }
     }
+    console.log(`✅ Successfully fetched metrics for ${tokensWithMetrics.length} tokens.`)
 
-    console.log(`✅ Successfully processed ${tokensWithMetrics.length} tokens with sufficient liquidity and volume`)
-    return formatTokenResponse(tokensWithMetrics)
+    // --- NEW FILTERING STEP ---
+    const activelyTradedTokens = tokensWithMetrics.filter((token) => {
+      // Keep the token if price_change_24h is not null
+      // (meaning it has some 24-hour price change data)
+      return token.price_change_24h !== null
+    })
+    // --- END NEW FILTERING STEP ---
+
+    console.log(`📈 Found ${activelyTradedTokens.length} tokens with non-null 24h price change data (actively traded).`)
+
+    return formatTokenResponse(activelyTradedTokens) // Pass the filtered list
   } catch (error) {
     console.error("❌ Unexpected API error:", error)
-
     return NextResponse.json(
       {
         error: "Internal server error",
@@ -110,16 +113,17 @@ export async function GET() {
 }
 
 function formatTokenResponse(tokens: any[]) {
+  // tokens here will be activelyTradedTokens
   if (!tokens || tokens.length === 0) {
     return NextResponse.json({
       tokens: [],
       count: 0,
       last_updated: new Date().toISOString(),
-      message: "No tokens found with sufficient liquidity and volume. Add some tokens first.",
+      message:
+        "No tokens found meeting all criteria (enabled, sufficient liquidity/volume, not hidden, and recent 24h trade data).", // Updated message
     })
   }
 
-  // Calculate additional metrics and sort by market cap
   const processedTokens = tokens
     .map((token) => ({
       ...token,
@@ -127,23 +131,22 @@ function formatTokenResponse(tokens: any[]) {
         ? Math.floor((Date.now() - new Date(token.pair_created_at).getTime()) / (1000 * 60 * 60 * 24))
         : null,
       trade_url: token.pair_address ? `https://dexscreener.com/hyperevm/${token.pair_address}` : null,
-      // Include social data (already stored as JSONB in database)
       websites: token.websites || [],
       socials: token.socials || [],
     }))
-    .sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)) // Sort by market cap descending
+    .sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
 
-  // Use the most recent updated_at from tokens table (when cron last ran)
   const lastUpdated = tokens.reduce((latest, token) => {
     const tokenUpdated = new Date(token.updated_at || token.created_at || 0)
     return tokenUpdated > latest ? tokenUpdated : latest
-  }, new Date(0))
+  }, new Date(0)) // Initial value handles empty array for reduce
 
   return NextResponse.json({
     tokens: processedTokens,
-    count: tokens.length,
-    last_updated: lastUpdated.toISOString(), // ← Now uses tokens table updated_at (cron run time)
+    count: tokens.length, // This will be the count of activelyTradedTokens
+    last_updated: lastUpdated.toISOString(),
     liquidity_filtered: true,
     volume_filtered: true,
+    // You could add more flags here if needed, e.g., active_trade_data_filtered: true
   })
 }
