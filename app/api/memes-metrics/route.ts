@@ -21,6 +21,7 @@ export async function GET() {
         metrics: [],
         marketCapChange: null,
         volumeChange: null,
+        last_updated: new Date().toISOString(),
       })
     }
 
@@ -31,12 +32,16 @@ export async function GET() {
     const marketCapChange = latest.total_market_cap - oldest.total_market_cap
     const volumeChange = latest.total_volume_24h - oldest.total_volume_24h
 
+    // Use the latest updated_at timestamp from the most recent record
+    const lastUpdated = latest.updated_at || latest.recorded_at || new Date().toISOString()
+
     return NextResponse.json({
       metrics,
       marketCapChange,
       volumeChange,
       oldest,
       latest,
+      last_updated: lastUpdated, // Add this field for consistency
     })
   } catch (error) {
     console.error("Error in memes metrics API:", error)

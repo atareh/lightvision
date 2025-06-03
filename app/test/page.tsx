@@ -5,7 +5,7 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Loader2, Play, RefreshCw, TrendingUp, DatabaseZap, BarChartBig } from "lucide-react" // Added DatabaseZap, BarChartBig
+import { DollarSign, Loader2, Play, RefreshCw, TrendingUp, DatabaseZap, BarChartBig, Activity } from "lucide-react" // Added DatabaseZap, BarChartBig, Activity
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
@@ -133,6 +133,14 @@ export default function TestPage() {
   const [tokenFilterCheckLoading, setTokenFilterCheckLoading] = useState(false)
   const [tokenFilterCheckResult, setTokenFilterCheckResult] = useState<TestResult | null>(null)
 
+  // New state for GeckoTerminal Sync
+  const [geckoTerminalSyncLoading, setGeckoTerminalSyncLoading] = useState(false)
+  const [geckoTerminalSyncResult, setGeckoTerminalSyncResult] = useState<TestResult | null>(null)
+
+  // Add new state for Token Price Refresh
+  const [tokenPriceRefreshLoading, setTokenPriceRefreshLoading] = useState(false)
+  const [tokenPriceRefreshResult, setTokenPriceRefreshResult] = useState<TestResult | null>(null)
+
   const forceTokenFilterCheck = async () => {
     if (!debugPassword) {
       toast({ title: "Error", description: "Please enter the debug password.", variant: "destructive" })
@@ -228,6 +236,57 @@ export default function TestPage() {
       toast({ title: "Network Error", description: errorMessage, variant: "destructive" })
     } finally {
       setLoading(false)
+    }
+  }
+
+  // New trigger function for Token Price Refresh
+  const triggerTokenPriceRefresh = async () => {
+    if (!debugPassword) {
+      toast({ title: "Error", description: "Please enter the debug password.", variant: "destructive" })
+      return
+    }
+    setTokenPriceRefreshLoading(true)
+    setTokenPriceRefreshResult(null)
+    try {
+      // This endpoint can be triggered by POST as well, and checks headers for auth
+      const response = await fetch("/api/cron/token-price-refresh", {
+        method: "POST", // Or GET, but POST is fine for a manual trigger
+        headers: {
+          "Content-Type": "application/json", // Still good practice even if body is empty for POST
+          "x-debug-password": debugPassword, // Auth via header
+          // "Authorization": `Bearer ${process.env.CRON_SECRET}` // Alternative for real cron
+        },
+      })
+      const resultData = await response.json()
+      setTokenPriceRefreshResult({
+        success: response.ok,
+        message:
+          resultData.message ||
+          (response.ok ? "Token price refresh completed successfully." : "Token price refresh failed."),
+        timestamp: new Date().toISOString(),
+        result: resultData,
+        error: resultData.error,
+      })
+      if (!response.ok) {
+        toast({
+          title: "API Error",
+          description: resultData.error || resultData.message || "Token price refresh failed.",
+          variant: "destructive",
+        })
+      } else {
+        toast({ title: "Success", description: resultData.message || "Token price refresh initiated." })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown network error."
+      setTokenPriceRefreshResult({
+        success: false,
+        message: "Network error during token price refresh.",
+        timestamp: new Date().toISOString(),
+        error: errorMessage,
+      })
+      toast({ title: "Network Error", description: errorMessage, variant: "destructive" })
+    } finally {
+      setTokenPriceRefreshLoading(false)
     }
   }
 
@@ -413,16 +472,16 @@ Volume:
           />
 
           <TestUnitCard
-            title="Memes Refresh Cron"
-            description="Test the 5-minute HyperEVM memes token data refresh cron job."
-            buttonText="Test Memes Refresh"
+            title="Token Filter Status Refresh (KV)"
+            description="Refreshes low_liquidity/low_volume flags for tokens listed in Vercel KV. (Formerly Memes Refresh Cron)"
+            buttonText="Refresh Filter Status (KV)"
             onTrigger={() =>
               handleApiCall(
-                "/api/cron/token-refresh",
-                setMemesRefreshLoading,
-                setMemesRefreshResult,
-                "Memes refresh completed successfully.",
-                "Memes refresh failed.",
+                "/api/cron/update-token-filter-status", // <<< NEW PATH
+                setMemesRefreshLoading, // State variables can remain the same if you prefer, or be renamed too
+                setMemesRefreshResult, // State variables can remain the same
+                "Token filter status refresh completed successfully.",
+                "Token filter status refresh failed.",
               )
             }
             isLoading={memesRefreshLoading}
@@ -446,6 +505,73 @@ Volume:
             isLoading={memesMetricsLoading}
             result={memesMetricsResult}
             icon={BarChartBig} // New Icon
+          />
+
+          <TestUnitCard
+            title="GeckoTerminal Trending Sync"
+            description="Manually trigger the GeckoTerminal trending pools sync to fetch and update token data from pages 1-10."
+            buttonText="Sync GeckoTerminal Data"
+            onTrigger={async () => {
+              if (!debugPassword) {
+                toast({ title: "Error", description: "Please enter the debug password.", variant: "destructive" })
+                return
+              }
+              setGeckoTerminalSyncLoading(true)
+              setGeckoTerminalSyncResult(null)
+              try {
+                const response = await fetch("/api/cron/geckoterminal-sync", {
+                  method: "GET", // Or "POST" if your cron endpoint accepts it for debug
+                  headers: {
+                    "Content-Type": "application/json",
+                    "x-debug-password": debugPassword, // Use the debug password header
+                  },
+                })
+                const resultData = await response.json()
+                setGeckoTerminalSyncResult({
+                  success: response.ok,
+                  message:
+                    resultData.message ||
+                    (response.ok ? "GeckoTerminal sync completed successfully." : "GeckoTerminal sync failed."),
+                  timestamp: new Date().toISOString(),
+                  result: resultData,
+                  error: resultData.error,
+                })
+                if (!response.ok) {
+                  toast({
+                    title: "API Error",
+                    description: resultData.error || "GeckoTerminal sync failed.",
+                    variant: "destructive",
+                  })
+                }
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : "Unknown network error."
+                setGeckoTerminalSyncResult({
+                  success: false,
+                  message: "Network error",
+                  timestamp: new Date().toISOString(),
+                  error: errorMessage,
+                })
+                toast({ title: "Network Error", description: errorMessage, variant: "destructive" })
+              } finally {
+                setGeckoTerminalSyncLoading(false)
+              }
+            }}
+            isLoading={geckoTerminalSyncLoading}
+            result={geckoTerminalSyncResult}
+            icon={TrendingUp}
+            requiresPassword={true}
+          />
+
+          {/* Add the new TestUnitCard for Token Price Refresh */}
+          <TestUnitCard
+            title="DexScreener Price Refresh"
+            description="Manually trigger the DexScreener token price refresh cron job (updates price, volume, liquidity etc. for enabled tokens)."
+            buttonText="Refresh Token Prices"
+            onTrigger={triggerTokenPriceRefresh}
+            isLoading={tokenPriceRefreshLoading}
+            result={tokenPriceRefreshResult}
+            icon={Activity} // Using Activity icon
+            requiresPassword={true}
           />
         </div>
       </div>

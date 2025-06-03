@@ -48,7 +48,6 @@ export async function POST() {
           execution_id: executionId,
           query_id: queryId,
           status: "PENDING",
-          created_at: new Date().toISOString(),
         },
       ])
       .select()

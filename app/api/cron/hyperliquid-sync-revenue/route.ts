@@ -8,8 +8,6 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
   console.error("Cron: Missing Supabase URL or Service Role Key")
-  // This won't stop the module from loading but will prevent Supabase client creation.
-  // Consider throwing an error here if you want to halt deployment/startup on missing critical env vars.
 }
 
 const supabase = createClient(supabaseUrl!, supabaseServiceRoleKey!)
@@ -66,7 +64,8 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
       revenue: entry.revenue,
       annualized_revenue: avg ? Math.round(avg * 365) : null,
       execution_id: executionId,
-      query_id: 999999, // Distinguish Llama data
+      query_id: 999999,
+      // Don't set timestamps here - we'll handle them differently
     }
   })
   console.log(`[${executionId}] Cron: Transformed data. Output records: ${processedData.length}`)
@@ -76,19 +75,64 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
 async function upsertToSupabase(rows: any[], executionId: string) {
   if (!rows || rows.length === 0) {
     console.log(`[${executionId}] Cron: No rows to upsert to Supabase.`)
-    return { inserted: 0, error: null }
+    return { inserted: 0, updated: 0, error: null }
   }
-  console.log(`[${executionId}] Cron: Attempting to upsert ${rows.length} rows to Supabase table 'daily_revenue'.`)
-  const { data, error } = await supabase.from("daily_revenue").upsert(rows, {
-    onConflict: "day", // Ensure 'day' is the correct unique constraint column
-  })
 
-  if (error) {
-    console.error(`[${executionId}] Cron: Failed to upsert to Supabase: ${error.message}`, error)
-    throw new Error(`Failed to upsert to Supabase: ${error.message}`)
+  console.log(`[${executionId}] Cron: Processing ${rows.length} rows for Supabase table 'daily_revenue'.`)
+
+  let inserted = 0
+  let updated = 0
+  const now = new Date().toISOString()
+
+  // Process each row individually to ensure updated_at is set correctly
+  for (const row of rows) {
+    // First check if the record exists
+    const { data: existingData, error: checkError } = await supabase
+      .from("daily_revenue")
+      .select("day")
+      .eq("day", row.day)
+      .maybeSingle()
+
+    if (checkError) {
+      console.error(`[${executionId}] Cron: Error checking for existing record: ${checkError.message}`)
+      continue
+    }
+
+    if (existingData) {
+      // Record exists - use UPDATE with explicit updated_at
+      const { error: updateError } = await supabase
+        .from("daily_revenue")
+        .update({
+          ...row,
+          updated_at: now, // Explicitly set updated_at to now
+        })
+        .eq("day", row.day)
+
+      if (updateError) {
+        console.error(`[${executionId}] Cron: Failed to update record: ${updateError.message}`)
+      } else {
+        updated++
+        console.log(`[${executionId}] Cron: Updated record for day ${row.day} with new updated_at: ${now}`)
+      }
+    } else {
+      // Record doesn't exist - INSERT with both timestamps
+      const { error: insertError } = await supabase.from("daily_revenue").insert({
+        ...row,
+        created_at: now,
+        updated_at: now,
+      })
+
+      if (insertError) {
+        console.error(`[${executionId}] Cron: Failed to insert record: ${insertError.message}`)
+      } else {
+        inserted++
+        console.log(`[${executionId}] Cron: Inserted new record for day ${row.day}`)
+      }
+    }
   }
-  console.log(`[${executionId}] Cron: Successfully upserted data to Supabase. Result:`, data) // Supabase upsert often returns null for data on success, count is more reliable from rows.length
-  return { inserted: rows.length, error: null }
+
+  console.log(`[${executionId}] Cron: Successfully processed data. Inserted: ${inserted}, Updated: ${updated}`)
+  return { inserted, updated, error: null }
 }
 
 export async function GET(req: Request) {
@@ -125,15 +169,19 @@ export async function GET(req: Request) {
         execution_id: executionId,
         message: "No data to process or upsert.",
         inserted: 0,
+        updated: 0,
       })
     }
 
     const result = await upsertToSupabase(processedData, executionId)
-    console.log(`[${executionId}] Cron: Revenue sync job completed successfully. Inserted: ${result.inserted}`)
+    console.log(
+      `[${executionId}] Cron: Revenue sync job completed successfully. Inserted: ${result.inserted}, Updated: ${result.updated}`,
+    )
     return NextResponse.json({
       success: true,
       execution_id: executionId,
       inserted: result.inserted,
+      updated: result.updated,
     })
   } catch (error: any) {
     console.error(`[${executionId}] Cron: Error in revenue sync job: ${error.message}`, error)

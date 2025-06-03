@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { v4 as uuidv4 } from "uuid"
-import { rateLimit } from "@/lib/rate-limit" // Assuming you have this utility
+import { rateLimit } from "@/lib/rate-limit"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -55,13 +55,47 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
   return processedData
 }
 
+async function upsertToSupabase(rows: any[], executionId: string) {
+  if (!rows || rows.length === 0) {
+    return { inserted: 0, updated: 0, error: null }
+  }
+
+  const now = new Date().toISOString()
+
+  // Add only updated_at timestamp to all rows (created_at will be set automatically on first insert)
+  const rowsWithTimestamps = rows.map((row) => ({
+    ...row,
+    updated_at: now,
+  }))
+
+  // Use upsert but with merge to ensure updated_at is always set
+  const { error } = await supabase.from("daily_revenue").upsert(rowsWithTimestamps, {
+    onConflict: "day",
+    ignoreDuplicates: false,
+  })
+
+  if (error) {
+    console.error("Manual sync: Failed to upsert records:", error.message)
+    return { inserted: 0, updated: 0, error: error.message }
+  }
+
+  console.log(`Manual sync: Successfully upserted ${rows.length} records with updated_at: ${now}`)
+  return { inserted: 0, updated: rows.length, error: null }
+}
+
 export async function POST(req: Request) {
   try {
     // Apply rate limiting
     try {
       await limiter.check(NextResponse, req.ip || "anonymous", 5) // 5 attempts per minute
     } catch {
-      return NextResponse.json({ error: "Too many attempts, please try again later" }, { status: 429 })
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many attempts, please try again later",
+        },
+        { status: 429 },
+      )
     }
 
     // Check for debug password
@@ -77,7 +111,13 @@ export async function POST(req: Request) {
       console.warn("Invalid password attempt")
       // Add a small delay to slow down brute force attempts
       await new Promise((resolve) => setTimeout(resolve, 1000))
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+        },
+        { status: 401 },
+      )
     }
 
     // Generate a unique execution ID
@@ -89,13 +129,11 @@ export async function POST(req: Request) {
     // Transform and compute annualized revenue
     const processedData = transformAndComputeAnnualized(rawData, executionId)
 
-    // Upsert to Supabase
-    const { data, error } = await supabase.from("daily_revenue").upsert(processedData, {
-      onConflict: ["day"],
-    })
+    // Upsert to Supabase with proper updated_at handling
+    const result = await upsertToSupabase(processedData, executionId)
 
-    if (error) {
-      throw new Error(`Failed to upsert to Supabase: ${error.message}`)
+    if (result.error) {
+      throw new Error(`Failed to upsert to Supabase: ${result.error}`)
     }
 
     // Get the latest revenue data for display
@@ -103,7 +141,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      inserted: processedData.length,
+      inserted: result.inserted,
+      updated: result.updated,
       latest_day: latestData.day,
       latest_revenue: latestData.revenue,
       latest_annualized: latestData.annualized_revenue,

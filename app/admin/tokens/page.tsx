@@ -22,6 +22,7 @@ interface Token {
   name: string | null
   symbol: string | null
   enabled: boolean
+  is_hidden?: boolean
   created_at: string
   updated_at: string
 }
@@ -37,6 +38,7 @@ export default function AdminTokensPage() {
   const [tokens, setTokens] = useState<Token[]>([])
   const [tokensLoading, setTokensLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({})
+  const [visibilityLoading, setVisibilityLoading] = useState<{ [key: string]: boolean }>({})
 
   const addToken = async (tokenData: { contract_address: string; name?: string; symbol?: string }) => {
     const response = await fetch("/api/admin/add-token", {
@@ -187,6 +189,38 @@ export default function AdminTokensPage() {
       alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
     } finally {
       setActionLoading((prev) => ({ ...prev, [contractAddress]: false }))
+    }
+  }
+
+  const toggleTokenVisibility = async (contractAddress: string, currentIsHidden: boolean | undefined) => {
+    setVisibilityLoading((prev) => ({ ...prev, [contractAddress]: true }))
+
+    try {
+      const response = await fetch("/api/admin/toggle-token-visibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contract_address: contractAddress,
+          is_hidden: !currentIsHidden, // Toggle the current state
+          admin_secret: adminSecret,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (result.success && result.token) {
+        setTokens((prev) =>
+          prev.map((token) =>
+            token.contract_address === contractAddress ? { ...token, is_hidden: result.token.is_hidden } : token,
+          ),
+        )
+      } else {
+        alert(`Failed to toggle visibility: ${result.error || "Unknown error"}`)
+      }
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
+    } finally {
+      setVisibilityLoading((prev) => ({ ...prev, [contractAddress]: false }))
     }
   }
 
@@ -357,6 +391,9 @@ export default function AdminTokensPage() {
                               <Badge className={token.enabled ? "bg-[#20a67d] text-black" : "bg-[#868d8f] text-white"}>
                                 {token.enabled ? "Enabled" : "Disabled"}
                               </Badge>
+                              <Badge className={!token.is_hidden ? "bg-blue-500 text-white" : "bg-gray-500 text-white"}>
+                                {!token.is_hidden ? "Visible" : "Hidden"}
+                              </Badge>
                               <Button
                                 onClick={() => toggleToken(token.contract_address, token.enabled)}
                                 disabled={actionLoading[token.contract_address]}
@@ -370,6 +407,24 @@ export default function AdminTokensPage() {
                                   "⏸️"
                                 ) : (
                                   "▶️"
+                                )}
+                              </Button>
+                              <Button
+                                onClick={() => toggleTokenVisibility(token.contract_address, token.is_hidden)}
+                                disabled={
+                                  visibilityLoading[token.contract_address] || actionLoading[token.contract_address]
+                                }
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-purple-400 hover:text-purple-300"
+                                title={token.is_hidden ? "Make Visible" : "Hide Token"}
+                              >
+                                {visibilityLoading[token.contract_address] ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : token.is_hidden ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
                                 )}
                               </Button>
                               <Button

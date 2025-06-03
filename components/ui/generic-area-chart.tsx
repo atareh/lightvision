@@ -309,7 +309,7 @@ export default function GenericAreaChart({
             style={{
               fontSize: "24px",
               fontWeight: "normal",
-              opacity: "0.03",
+              opacity: "0.08",
               fontFamily: "Teodor, Arial, sans-serif",
               pointerEvents: "none",
             }}

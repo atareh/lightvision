@@ -354,7 +354,13 @@ export default function HeroMetrics() {
               onClick={() => setActiveMetric(metricId)}
               color={metric.color}
               // Add refresh indicator props
-              updateFrequencyHours={metricId === "tvl" || metricId === "wallets" ? 4 : 24}
+              updateFrequencyHours={
+                metricId === "dailyRevenue" || metricId === "annualizedRevenue"
+                  ? 4
+                  : metricId === "tvl" || metricId === "wallets"
+                    ? 4
+                    : 24
+              }
               lastUpdatedAt={getLastUpdatedAt()}
               isRealtime={false}
               showChangeArrow={true}

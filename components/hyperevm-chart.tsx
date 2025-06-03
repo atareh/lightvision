@@ -320,7 +320,7 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
               className="fill-white"
               style={{
                 fontSize: "24px",
-                opacity: "0.03",
+                opacity: "0.08",
                 fontFamily: "Teodor, Arial, sans-serif",
                 pointerEvents: "none",
               }}

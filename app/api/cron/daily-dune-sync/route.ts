@@ -175,7 +175,6 @@ async function triggerSpecificDuneQuery(cronJobInternalExecutionId: string, quer
       query_id: queryId,
       status: "PENDING",
       cron_execution_id: cronJobInternalExecutionId,
-      created_at: new Date().toISOString(),
     }
     console.log(
       `[${cronJobInternalExecutionId}] triggerSpecificDuneQuery (${queryName}): Attempting to insert into Supabase dune_executions:`,
@@ -297,7 +296,6 @@ async function logCronStart(executionId: string, cronType: string) {
         execution_id: executionId,
         cron_type: cronType, // Use passed cronType
         status: "RUNNING",
-        started_at: new Date().toISOString(),
       },
     ])
   } catch (error) {

@@ -44,7 +44,7 @@ export default function HyperEVMOverviewMetrics({
     isPositive: (hyperEVMData?.daily_change ?? 0) >= 0,
     lastUpdated: hyperEVMData?.last_updated,
     isLoading: hyperEVMLoading,
-    updateFrequencyHours: 3,
+    updateFrequencyHours: 4,
     dataKey: "tvl",
     color: "#20a67d",
     isRealtime: false,

@@ -14,6 +14,7 @@ export async function GET() {
       .eq("enabled", true)
       .eq("low_liquidity", false)
       .eq("low_volume", false)
+      .eq("is_hidden", false) // <-- ADD THIS LINE
 
     if (tokensError) {
       console.error("❌ Tokens query error:", tokensError)
@@ -132,15 +133,16 @@ function formatTokenResponse(tokens: any[]) {
     }))
     .sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)) // Sort by market cap descending
 
+  // Use the most recent updated_at from tokens table (when cron last ran)
   const lastUpdated = tokens.reduce((latest, token) => {
-    const tokenUpdated = new Date(token.recorded_at || token.updated_at || 0)
+    const tokenUpdated = new Date(token.updated_at || token.created_at || 0)
     return tokenUpdated > latest ? tokenUpdated : latest
   }, new Date(0))
 
   return NextResponse.json({
     tokens: processedTokens,
     count: tokens.length,
-    last_updated: lastUpdated.toISOString(),
+    last_updated: lastUpdated.toISOString(), // ← Now uses tokens table updated_at (cron run time)
     liquidity_filtered: true,
     volume_filtered: true,
   })

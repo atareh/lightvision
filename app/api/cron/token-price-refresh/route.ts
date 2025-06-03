@@ -1,7 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("🔴 CRITICAL: Supabase URL or Service Key is missing for token-price-refresh.")
+}
+const supabase = createClient(supabaseUrl!, supabaseServiceKey!)
 
 export async function GET(request: NextRequest) {
   return handleTokenPriceRefresh(request, true) // true = require auth for GET (real cron)
@@ -16,7 +22,6 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
   const startTime = Date.now()
   const isManualTest = request.headers.get("x-debug-password") === process.env.DEBUG_PASSWORD
 
-  // Enhanced logging - add timestamp and execution type
   console.log(`
 💰 ========== PRICE REFRESH STARTED ==========
 📅 Timestamp: ${new Date().toISOString()}
@@ -24,15 +29,12 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
 🔧 Type: ${isManualTest ? "Manual Test" : "Scheduled Cron"}
 ⚡ Mode: PRICE ONLY (no social data)
 ==============================================
-  `)
+`)
 
   try {
-    // SECURITY: Always verify authorization
     if (requireAuth) {
       const authHeader = request.headers.get("authorization")
       const debugPassword = request.headers.get("x-debug-password")
-
-      // Allow either CRON_SECRET (for real cron) or DEBUG_PASSWORD (for manual testing)
       const isValidCron = authHeader === `Bearer ${process.env.CRON_SECRET}`
       const isValidDebug = debugPassword === process.env.DEBUG_PASSWORD
 
@@ -40,33 +42,25 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
         console.error(`❌ [${executionId}] UNAUTHORIZED ACCESS ATTEMPT - Missing or invalid credentials`)
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       }
-
-      if (isValidCron) {
-        console.log(`💰 [${executionId}] Price refresh cron job triggered (1-minute interval)`)
-      } else {
-        console.log(`💰 [${executionId}] Price refresh manual test triggered (authenticated)`)
-      }
+      // ... logging for cron/debug trigger
     }
 
-    // Get all enabled tokens from database
     console.log(`📋 [${executionId}] Fetching enabled tokens from database...`)
     const dbFetchStart = Date.now()
-
-    const { data: tokens, error: fetchError } = await supabase
+    const { data: tokensFromDb, error: fetchError } = await supabase
       .from("tokens")
-      .select("contract_address")
+      .select("contract_address") // Only select what's needed
       .eq("enabled", true)
-
+      .eq("is_hidden", false) // <-- ADD THIS LINE
     const dbFetchDuration = Date.now() - dbFetchStart
 
     if (fetchError) {
       console.error(`❌ [${executionId}] DATABASE ERROR: Failed to fetch tokens: ${fetchError.message}`)
       throw new Error(`Failed to fetch tokens: ${fetchError.message}`)
     }
-
     console.log(`✅ [${executionId}] Database fetch completed in ${dbFetchDuration}ms`)
 
-    if (!tokens || tokens.length === 0) {
+    if (!tokensFromDb || tokensFromDb.length === 0) {
       console.log(`⚠️ [${executionId}] No enabled tokens found`)
       return NextResponse.json({
         success: true,
@@ -76,14 +70,12 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
       })
     }
 
-    console.log(`📋 [${executionId}] Found ${tokens.length} enabled tokens to refresh`)
-
-    // Use larger batches since we're only doing price updates (back to original size)
-    const contractAddresses = tokens.map((t) => t.contract_address)
-    const batches = chunkArray(contractAddresses, 30) // Increased from 15 to 30 for price-only
+    console.log(`📋 [${executionId}] Found ${tokensFromDb.length} enabled tokens to refresh`)
+    // Ensure all addresses from DB are lowercase for consistent checking later
+    const contractAddresses = tokensFromDb.map((t) => t.contract_address.toLowerCase())
+    const batches = chunkArray(contractAddresses, 30)
 
     console.log(`📦 [${executionId}] Processing ${batches.length} batches (price data only)`)
-
     let totalProcessed = 0
     let totalErrors = 0
     let supabaseOperations = 0
@@ -91,9 +83,8 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
     const results = []
     const errorDetails = []
 
-    // Process batches with faster cadence since we're only doing metrics
     for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i]
+      const batch = batches[i] // batch contains lowercased addresses
       const batchStartTime = Date.now()
 
       // Safety check - abort if we're approaching timeout (85s limit)
@@ -104,8 +95,9 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
 
       try {
         console.log(`🔄 [${executionId}] Processing batch ${i + 1}/${batches.length} (${batch.length} tokens)`)
-
+        // Pass the original batch (which is already lowercased) for validation inside processPriceBatch
         const batchResult = await processPriceBatch(batch, executionId)
+
         results.push(batchResult)
 
         totalProcessed += batchResult.processed
@@ -120,7 +112,6 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
         const batchDuration = Date.now() - batchStartTime
         console.log(`✅ [${executionId}] Batch ${i + 1} completed in ${batchDuration}ms`)
 
-        // Shorter delay between batches since we're only doing metrics (1s)
         if (i < batches.length - 1) {
           console.log(`⏳ [${executionId}] Waiting 1s before next batch...`)
           await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -146,7 +137,6 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
           errorDetails: [errorDetail],
         })
 
-        // If we hit rate limits, wait longer before next batch
         if (error instanceof Error && (error.message.includes("Rate limited") || error.message.includes("Too Many"))) {
           console.log(`⏳ [${executionId}] Rate limited detected, waiting 5s before next batch...`)
           await new Promise((resolve) => setTimeout(resolve, 5000))
@@ -157,7 +147,6 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
     const duration = Date.now() - startTime
     const success = totalErrors === 0
 
-    // Enhanced completion logging with detailed stats
     console.log(`
 💰 ========== PRICE REFRESH COMPLETED ==========
 📅 Timestamp: ${new Date().toISOString()}
@@ -165,13 +154,8 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
 ⏱️ Duration: ${duration}ms
 ✅ Tokens Processed: ${totalProcessed}
 ❌ Errors: ${totalErrors}
-🔢 Success Rate: ${totalProcessed > 0 ? Math.round((totalProcessed / (totalProcessed + totalErrors)) * 100) : 0}%
-🗄️ Database Operations: ${supabaseOperations}
-🌐 DexScreener API Calls: ${dexscreenerCalls}
-⚡ Mode: PRICE ONLY
 ==============================================
-    `)
-
+  `)
     return NextResponse.json({
       success,
       execution_id: executionId,
@@ -200,14 +184,14 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
 💥 Error: ${errorMsg}
 ${error instanceof Error && error.stack ? `📚 Stack: ${error.stack}` : ""}
 ===========================================
-    `)
+  `)
 
     return NextResponse.json(
       {
         success: false,
-        execution_id: executionId,
         message: "Price refresh failed",
         error: errorMsg,
+        execution_id: executionId,
         timestamp: new Date().toISOString(),
         duration_ms: duration,
         mode: "price_only",
@@ -218,8 +202,8 @@ ${error instanceof Error && error.stack ? `📚 Stack: ${error.stack}` : ""}
   }
 }
 
-async function processPriceBatch(batch: string[], executionId: string) {
-  const batchStartTime = Date.now()
+async function processPriceBatch(batchOfAddresses: string[], executionId: string) {
+  // batchOfAddresses are already lowercased from the main function
   let processed = 0
   let errors = 0
   let totalSupabaseOps = 0
@@ -228,10 +212,11 @@ async function processPriceBatch(batch: string[], executionId: string) {
   const tokenResults = []
 
   try {
-    const dexscreenerApiUrl = `https://api.dexscreener.com/tokens/v1/hyperevm/${batch.join(",")}`
+    const dexscreenerApiUrl = `https://api.dexscreener.com/tokens/v1/hyperevm/${batchOfAddresses.join(",")}` // Using the user's original endpoint structure
 
-    console.log(`🔗 [${executionId}] Calling DexScreener API for price batch: ${batch.length} tokens`)
-
+    console.log(
+      `🔗 [${executionId}] Calling DexScreener API for price batch: ${batchOfAddresses.length} tokens. URL: ${dexscreenerApiUrl}`,
+    )
     const fetchStartTime = Date.now()
     dexscreenerCalls++
 
@@ -246,136 +231,134 @@ async function processPriceBatch(batch: string[], executionId: string) {
     console.log(`⏱️ [${executionId}] DexScreener API call took ${fetchDuration}ms`)
 
     if (!response.ok) {
-      console.error(`❌ [${executionId}] DexScreener API Error: ${response.status} ${response.statusText}`)
-
-      const errorDetail = {
-        type: "api_error",
-        status: response.status,
-        statusText: response.statusText,
-        timestamp: new Date().toISOString(),
-        tokens: batch,
-      }
-
-      errorDetails.push(errorDetail)
-      throw new Error(`HTTP error! Status: ${response.status} - ${response.statusText}`)
+      errors += batchOfAddresses.length
+      errorDetails.push({ type: "api_error", status: response.status, tokens: batchOfAddresses })
+      throw new Error(`HTTP error! Status: ${response.status}`)
     }
-
     const parseStartTime = Date.now()
-    const data = await response.json()
+    const responseData = await response.json()
     const parseDuration = Date.now() - parseStartTime
 
     console.log(`⏱️ [${executionId}] JSON parsing took ${parseDuration}ms`)
-    console.log(`📊 [${executionId}] DexScreener response: ${Array.isArray(data) ? data.length : 0} pairs found`)
+    console.log(
+      `📊 [${executionId}] DexScreener response: ${Array.isArray(responseData) ? responseData.length : 0} pairs found`,
+    )
 
-    if (!Array.isArray(data) || data.length === 0) {
-      console.warn(`⚠️ [${executionId}] No pairs found for batch`)
-      return {
-        batch: batch,
-        processed: 0,
-        errors: batch.length,
-        message: "No pairs found",
-        supabaseOps: 0,
-        dexscreenerCalls,
-        errorDetails,
-      }
+    if (!Array.isArray(responseData)) {
+      console.warn(`[${executionId}] Unexpected API response format. Expected array. Got:`, typeof responseData)
+      errors += batchOfAddresses.length
+      errorDetails.push({ type: "api_response_format_error", message: "Expected array", tokens: batchOfAddresses })
+      return { processed, errors, errorDetails, supabaseOps: totalSupabaseOps, dexscreenerCalls } // Or throw
     }
 
-    // Process each pair in the batch - PRICE ONLY
-    for (const pair of data) {
+    for (const item of responseData) {
+      // Changed from 'pair' to 'item' for clarity
+      const baseTokenAddress = item.baseToken?.address?.toLowerCase()
+      const baseTokenSymbol = item.baseToken?.symbol
+
+      if (!baseTokenAddress) {
+        console.warn(
+          `[${executionId}] Skipping item due to missing baseToken address. Item: ${JSON.stringify(item).slice(0, 100)}`,
+        )
+        errors++
+        errorDetails.push({
+          type: "missing_data",
+          message: "Missing baseToken address",
+          token_symbol: baseTokenSymbol || "Unknown",
+        })
+        continue
+      }
+
+      // Defensive Check: Ensure this baseTokenAddress was in our original request batch
+      // batchOfAddresses is already lowercased.
+      if (!batchOfAddresses.includes(baseTokenAddress)) {
+        console.warn(
+          `[${executionId}] DexScreener returned token ${baseTokenSymbol} (${baseTokenAddress}) which was not in the current DB query batch. Skipping metrics insertion.`,
+        )
+        errorDetails.push({ type: "unexpected_token", token_symbol: baseTokenSymbol, address: baseTokenAddress })
+        continue
+      }
+
       try {
         const dbStartTime = Date.now()
-        const result = await insertPriceMetrics(pair, executionId)
+        // Pass the whole 'item' which is expected to be the 'pair' object by insertPriceMetrics
+        const result = await insertPriceMetrics(item, executionId) // insertPriceMetrics will also lowercase baseToken.address
         const dbDuration = Date.now() - dbStartTime
 
-        console.log(`⏱️ [${executionId}] Price metrics for ${pair.baseToken?.symbol} took ${dbDuration}ms`)
+        console.log(`⏱️ [${executionId}] Price metrics for ${baseTokenSymbol} took ${dbDuration}ms`)
 
-        totalSupabaseOps += result.supabaseOps
-        processed++
-
+        totalSupabaseOps += result.supabaseOps || 0
+        dexscreenerCalls++
         tokenResults.push({
-          token: pair.baseToken?.symbol,
-          address: pair.baseToken?.address,
+          token: baseTokenSymbol,
+          address: baseTokenAddress,
           duration: dbDuration,
         })
 
         if (result.error) {
-          const errorDetail = {
+          errors++
+          errorDetails.push({
             type: "metrics_insert_error",
-            token: pair.baseToken?.symbol,
-            address: pair.baseToken?.address,
+            token_symbol: baseTokenSymbol,
+            address: baseTokenAddress,
             error: result.error,
-            timestamp: new Date().toISOString(),
-          }
-          errorDetails.push(errorDetail)
+          })
+        } else {
+          processed++
         }
-      } catch (error) {
-        console.error(`❌ [${executionId}] Failed to insert metrics for ${pair.baseToken?.symbol}:`, error)
+      } catch (e: any) {
         errors++
-
-        const errorDetail = {
-          type: "token_metrics_error",
-          token: pair.baseToken?.symbol,
-          address: pair.baseToken?.address,
-          error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString(),
-        }
-        errorDetails.push(errorDetail)
+        errorDetails.push({
+          type: "metrics_insert_exception",
+          token_symbol: baseTokenSymbol,
+          address: baseTokenAddress,
+          error: e.message,
+        })
+        console.error(
+          `[${executionId}] Error processing metrics for ${baseTokenSymbol} (${baseTokenAddress}): ${e.message}`,
+        )
       }
     }
   } catch (error: any) {
-    console.error(`❌ [${executionId}] Batch failed:`, error)
-
-    return {
-      batch: batch,
-      processed: 0,
-      errors: batch.length,
-      error: error instanceof Error ? error.message : "Unknown error",
-      supabaseOps: totalSupabaseOps,
-      dexscreenerCalls,
-      errorDetails,
-      tokenResults,
+    console.error(`❌ [${executionId}] Batch failed:`, error.message)
+    if (!errorDetails.find((ed) => ed.type === "api_error")) {
+      errorDetails.push({ type: "batch_processing_error", error: error.message, tokens: batchOfAddresses })
+    }
+    if (processed === 0 && errors === 0 && batchOfAddresses.length > 0) {
+      errors = batchOfAddresses.length
     }
   }
-
-  const batchDuration = Date.now() - batchStartTime
-  console.log(
-    `✅ [${executionId}] Price batch completed in ${batchDuration}ms: ${processed} processed, ${errors} errors`,
-  )
-
-  return {
-    batch: batch,
-    processed,
-    errors,
-    supabaseOps: totalSupabaseOps,
-    dexscreenerCalls,
-    duration: batchDuration,
-    errorDetails: errorDetails.length > 0 ? errorDetails : undefined,
-    tokenResults,
-  }
+  return { processed, errors, errorDetails, supabaseOps: totalSupabaseOps, dexscreenerCalls, tokenResults }
 }
 
-// Simplified function that ONLY inserts price metrics
-async function insertPriceMetrics(pair: any, executionId: string) {
-  const baseToken = pair.baseToken
-  if (!baseToken?.address) {
-    throw new Error("No base token address found")
+async function insertPriceMetrics(pairData: any, executionId: string) {
+  // pairData is an item from the DexScreener response array
+  const baseToken = pairData.baseToken
+  if (!baseToken?.address || typeof baseToken.address !== "string") {
+    // Added type check for address
+    console.warn(
+      `[${executionId}] No valid baseToken.address found in pairData. Skipping metrics. Data: ${JSON.stringify(pairData).slice(0, 100)}`,
+    )
+    return { error: "No valid baseToken.address found", supabaseOps: 0 }
   }
 
-  console.log(`💰 [${executionId}] Inserting price metrics for ${baseToken.symbol}`)
+  const contractAddress = baseToken.address.toLowerCase() // Ensure lowercase
+  const tokenSymbol = baseToken.symbol || "Unknown"
+
+  console.log(`💰 [${executionId}] Inserting price metrics for ${tokenSymbol} (Address: ${contractAddress})`)
 
   let supabaseOps = 0
 
   try {
-    // Insert new metrics record (time-series data) - ONLY THIS
     const metricsData = {
-      contract_address: baseToken.address,
-      price_usd: pair.priceUsd ? Number.parseFloat(pair.priceUsd) : null,
-      market_cap: pair.marketCap ? Number.parseFloat(pair.marketCap) : null,
-      fdv: pair.fdv ? Number.parseFloat(pair.fdv) : null,
-      price_change_30m: pair.priceChange?.h1 ? Number.parseFloat(pair.priceChange.h1) : null,
-      price_change_24h: pair.priceChange?.h24 ? Number.parseFloat(pair.priceChange.h24) : null,
-      volume_24h: pair.volume?.h24 ? Number.parseFloat(pair.volume.h24) : null,
-      liquidity_usd: pair.liquidity?.usd ? Number.parseFloat(pair.liquidity.usd) : null,
+      contract_address: contractAddress, // Use lowercased address
+      price_usd: pairData.priceUsd ? Number.parseFloat(pairData.priceUsd) : null,
+      market_cap: pairData.marketCap ? Number.parseFloat(pairData.marketCap) : null,
+      fdv: pairData.fdv ? Number.parseFloat(pairData.fdv) : null,
+      price_change_30m: pairData.priceChange?.h1 ? Number.parseFloat(pairData.priceChange.h1) : null, // Assuming h1 is 30m/1h
+      price_change_24h: pairData.priceChange?.h24 ? Number.parseFloat(pairData.priceChange.h24) : null,
+      volume_24h: pairData.volume?.h24 ? Number.parseFloat(pairData.volume.h24) : null,
+      liquidity_usd: pairData.liquidity?.usd ? Number.parseFloat(pairData.liquidity.usd) : null,
       recorded_at: new Date().toISOString(),
     }
 
@@ -383,21 +366,17 @@ async function insertPriceMetrics(pair: any, executionId: string) {
     supabaseOps++
 
     if (metricsError) {
-      console.error(`❌ [${executionId}] Price metrics insert failed for ${baseToken.symbol}: ${metricsError.message}`)
-      return {
-        supabaseOps,
-        error: `Metrics insert failed: ${metricsError.message}`,
-      }
+      console.error(
+        `❌ [${executionId}] Price metrics insert failed for ${tokenSymbol} (${contractAddress}): ${metricsError.message}`,
+      )
+      return { error: `Metrics insert failed: ${metricsError.message}`, supabaseOps }
     }
 
-    console.log(`✅ [${executionId}] Price metrics inserted for ${baseToken.symbol}`)
-
-    return {
-      supabaseOps,
-    }
+    console.log(`✅ [${executionId}] Price metrics inserted for ${tokenSymbol} (${contractAddress})`)
+    return { error: null, supabaseOps } // Success
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error"
-    console.error(`❌ [${executionId}] Price metrics failed for ${baseToken.symbol}: ${errorMsg}`)
+    console.error(`❌ [${executionId}] Price metrics failed for ${tokenSymbol} (${contractAddress}): ${errorMsg}`)
 
     return {
       supabaseOps,
@@ -406,7 +385,6 @@ async function insertPriceMetrics(pair: any, executionId: string) {
   }
 }
 
-// Utility function to chunk array
 function chunkArray<T>(array: T[], size: number): T[][] {
   const chunks: T[][] = []
   for (let i = 0; i < array.length; i += size) {
