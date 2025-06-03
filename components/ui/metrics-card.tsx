@@ -3,24 +3,24 @@
 import type React from "react"
 import { useState, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { Clock, Zap } from "lucide-react"
+import { Clock, Zap, ArrowUpRight, ArrowDownRight } from "lucide-react" // Added Arrow icons
 import { formatDistance } from "date-fns"
 
 interface MetricsCardProps {
   title: string
   value: React.ReactNode
-  change?: string
+  change?: string // This will now be the pre-formatted string from formatPercentageChange or similar
   isPositive?: boolean
   isLoading?: boolean
   showIndicator?: boolean
   tooltip?: string
   onClick?: () => void
-  active?: boolean // Add the active prop back
-  color?: string // Add color prop for the active state
-  // Add these new props for refresh indicators
+  active?: boolean
+  color?: string
   updateFrequencyHours?: number
   lastUpdatedAt?: string | Date
   isRealtime?: boolean
+  showChangeArrow?: boolean // New prop
 }
 
 export function MetricsCard({
@@ -37,6 +37,7 @@ export function MetricsCard({
   updateFrequencyHours,
   lastUpdatedAt,
   isRealtime = false,
+  showChangeArrow = false, // Default to false
 }: MetricsCardProps) {
   const [showTooltip, setShowTooltip] = useState(false)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
@@ -45,38 +46,30 @@ export function MetricsCard({
   const getRefreshText = () => {
     if (isRealtime) return null
     if (!updateFrequencyHours) return null
-
     return `${updateFrequencyHours}H`
   }
 
   const getRefreshTooltip = () => {
     if (isRealtime)
       return (
-        <div>
-          <div className="font-bold mb-1">Real-time data</div>
+        <div className="flex flex-col space-y-1">
+          <div className="flex items-center space-x-2">
+            <Zap className="h-4 w-4 text-[#51d2c1]" />
+            <span className="font-bold">Real-time data</span>
+          </div>
           <div>Updates continuously</div>
         </div>
       )
 
     if (!lastUpdatedAt || !updateFrequencyHours) return ""
-
     try {
       const lastUpdate = new Date(lastUpdatedAt)
       const now = new Date()
-
-      // Format for refresh frequency
       const frequencyText = `${updateFrequencyHours}H`
-
-      // Format for last refresh - simplified to "about X ago"
       const lastRefreshText = formatDistance(lastUpdate, now, { addSuffix: true })
-
-      // Calculate next refresh time
       const nextUpdate = new Date(lastUpdate.getTime() + updateFrequencyHours * 60 * 60 * 1000)
-
-      // Format for next refresh - simplified
       const timeUntilNext =
         nextUpdate > now ? `in about ${formatDistance(now, nextUpdate, { addSuffix: false })}` : "overdue"
-
       return (
         <div>
           <div className="font-bold mb-1">Refreshes every {frequencyText}</div>
@@ -94,8 +87,8 @@ export function MetricsCard({
     if (cardRef.current) {
       const rect = cardRef.current.getBoundingClientRect()
       setTooltipPosition({
-        x: rect.right - 220, // Position tooltip at bottom right
-        y: rect.bottom + 10, // Position below the card
+        x: rect.right - 220,
+        y: rect.bottom + 10,
       })
       setShowTooltip(true)
     }
@@ -107,6 +100,8 @@ export function MetricsCard({
 
   const refreshText = getRefreshText()
   const refreshTooltip = getRefreshTooltip()
+
+  const ChangeIcon = isPositive ? ArrowUpRight : ArrowDownRight
 
   return (
     <>
@@ -126,14 +121,12 @@ export function MetricsCard({
         onClick={onClick}
         title={tooltip}
       >
-        {/* Active dot positioned absolutely in line with title */}
         {active && (
           <div
             className="absolute top-[18px] right-4 w-2 h-2 rounded-full z-10"
             style={{ backgroundColor: color }}
           ></div>
         )}
-
         <div className="px-4 py-3 flex items-center justify-between">
           <h3 className="text-[#a0a8aa] text-xs font-medium">
             <span className="block sm:hidden">
@@ -161,14 +154,28 @@ export function MetricsCard({
                     }`}
                     style={{ fontFamily: "JetBrains Mono, monospace" }}
                   >
-                    {change}
+                    {showChangeArrow && <ChangeIcon className="h-3 w-3" />}
+                    {(() => {
+                      // Only remove "today" if this is NOT a wallet metric
+                      const shouldKeepToday = title.toLowerCase().includes("wallet")
+                      const cleanedChange = shouldKeepToday
+                        ? change || ""
+                        : change
+                            ?.replace(/\s*today\s*/gi, " ")
+                            .replace(/\s+/g, " ")
+                            .trim() || ""
+
+                      if (!isPositive && cleanedChange && !cleanedChange.startsWith("-")) {
+                        return `-${cleanedChange}`
+                      }
+                      return cleanedChange
+                    })()}
                   </span>
                 )}
               </div>
             </div>
           )}
         </CardContent>
-        {/* Clock/refresh indicator positioned aligned with subtext with padding */}
         {(isRealtime || refreshText) && (
           <div
             className="absolute bottom-[18px] right-4 hidden sm:flex items-center gap-1 text-[#868d8f]"
@@ -186,8 +193,6 @@ export function MetricsCard({
           </div>
         )}
       </Card>
-
-      {/* Tooltip rendered outside the card using fixed positioning */}
       {showTooltip && refreshTooltip && (
         <div
           className="fixed z-[9999] bg-[#1a2e2a] border border-[#2d5a4f] rounded px-3 py-2 text-xs text-white shadow-xl pointer-events-none min-w-[200px]"

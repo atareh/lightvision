@@ -3,9 +3,9 @@
 import SiteHeader from "@/components/site-header"
 import StickyPill from "@/components/sticky-pill"
 import HeroMetrics from "@/components/hero-metrics"
-import HyperEVMTokenList from "@/components/hyperevm-token-list"
 import TopMetrics from "@/components/top-metrics"
 import SiteFooter from "@/components/site-footer"
+import HyperEVMTokenList from "@/components/hyperevm-token-list"
 
 export default function Dashboard() {
   return (

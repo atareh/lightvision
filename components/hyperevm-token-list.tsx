@@ -11,8 +11,6 @@ import { ArrowUpDown, Search, X } from "lucide-react"
 import { MouseToast } from "@/components/ui/mouse-toast"
 import { useMemesMetrics } from "@/hooks/use-memes-metrics"
 import HyperEVMChart from "@/components/hyperevm-chart"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { MetricsCard } from "@/components/ui/metrics-card"
 import { ChartHeader } from "@/components/ui/chart-header"
 import DesktopTokenTableSkeleton from "@/components/token-list/desktop-token-table-skeleton"
 import MobileTokenCardSkeleton from "@/components/token-list/mobile-token-card-skeleton"
@@ -21,6 +19,7 @@ import PaginationControls from "@/components/token-list/pagination-controls"
 import TokenTable from "@/components/token-list/token-table" // Default import
 import { formatTVL, formatPrice, formatPercentageChange, formatAge } from "@/lib/utils"
 import MobilePagination from "@/components/token-list/mobile-pagination"
+import HyperEVMOverviewMetrics from "@/components/hyperevm-overview-metrics"
 
 const TOKENS_PER_PAGE = 10
 
@@ -73,7 +72,12 @@ export default function HyperEVMTokenList() {
   const { data: memesMetrics, loading: memesLoading, error: memesError } = useMemesMetrics()
   const [timeRange, setTimeRange] = useState<"7D" | "30D" | "90D" | "MAX">("7D")
 
-  // Intersection Observer for sticky behavior
+  // DEBUG LOGS
+  console.log("HyperEVMTokenList - memesMetricsData:", memesMetrics)
+  console.log("HyperEVMTokenList - memesMetricsLoading:", memesLoading)
+  console.log("HyperEVMTokenList - tokenData:", tokenData)
+  console.log("HyperEVMTokenList - tokenLoading:", tokenLoading)
+
   useEffect(() => {
     if (!triggerRef.current || !pillRef.current) return
 
@@ -194,148 +198,14 @@ export default function HyperEVMTokenList() {
             </div>
           </CardContent>
         </Card>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:flex lg:flex-col lg:justify-between lg:w-[200px] lg:h-[528px] lg:gap-0">
-          <MetricsCard
-            title="HyperEVM TVL"
-            value={
-              hyperEVMLoading ? (
-                <div className="animate-pulse h-8 bg-[#2d5a4f] rounded w-24"></div>
-              ) : hyperEVMData && hyperEVMData.current_tvl > 0 ? (
-                formatTVL(hyperEVMData.current_tvl)
-              ) : hyperEVMError && hyperEVMError.includes("sync first") ? (
-                "Sync Needed"
-              ) : (
-                "TO DO"
-              )
-            }
-            change={
-              hyperEVMLoading
-                ? ""
-                : hyperEVMData && typeof hyperEVMData.daily_change === "number"
-                  ? ` ${hyperEVMData.daily_change >= 0 ? "▲ " : "▼ "} ${formatTVL(
-                      Math.abs(hyperEVMData.daily_change),
-                    )} 24h`
-                  : ""
-            }
-            isPositive={hyperEVMData ? hyperEVMData.daily_change >= 0 : true}
-            isLoading={hyperEVMLoading}
-          />
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] cursor-pointer">
-                  <div className="px-4 py-3 flex items-center justify-between">
-                    <h3 className="text-[#a0a8aa] text-xs font-medium">
-                      <span className="sm:hidden">Altcoin Mkt Cap</span>
-                      <span className="hidden sm:inline">Altcoin Market Cap</span>
-                    </h3>
-                  </div>
-                  <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
-                    {tokenLoading ? (
-                      <div className="flex flex-col justify-start space-y-2">
-                        <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
-                        <div className="flex items-center h-4">
-                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col justify-start space-y-2">
-                        <p className="text-2xl font-bold text-white font-teodor tracking-tight">
-                          {tokenData?.totalMarketCap ? formatTVL(tokenData.totalMarketCap) : "TO DO"}
-                        </p>
-                        <div className="flex items-center h-4">
-                          {memesMetrics?.marketCapChange !== null && memesMetrics?.marketCapChange !== undefined && (
-                            <span
-                              className={`text-xs font-medium flex items-center gap-1 ${memesMetrics.marketCapChange >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"}`}
-                              style={{ fontFamily: "JetBrains Mono, monospace" }}
-                            >
-                              {memesMetrics.marketCapChange >= 0 ? "▲ " : "▼ "}
-                              {formatTVL(Math.abs(memesMetrics.marketCapChange))} 24h
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Coming Soon!</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] cursor-pointer">
-                  <div className="px-4 py-3 flex items-center justify-between">
-                    <h3 className="text-[#a0a8aa] text-xs font-medium">
-                      <span className="sm:hidden">24H Volume</span>
-                      <span className="hidden sm:inline">24H Volume</span>
-                    </h3>
-                  </div>
-                  <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
-                    {tokenLoading ? (
-                      <div className="flex flex-col justify-start space-y-2">
-                        <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
-                        <div className="flex items-center h-4">
-                          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col justify-start space-y-2">
-                        <p className="text-2xl font-bold text-white font-teodor tracking-tight">
-                          {tokenData?.totalVolume24h ? formatTVL(tokenData.totalVolume24h) : "TO DO"}
-                        </p>
-                        <div className="flex items-center h-4">
-                          {memesMetrics?.volumeChange !== null && memesMetrics?.volumeChange !== undefined && (
-                            <span
-                              className={`text-xs font-medium flex items-center gap-1 ${memesMetrics.volumeChange >= 0 ? "text-[#20a67d]" : "text-[#ed7188]"}`}
-                              style={{ fontFamily: "JetBrains Mono, monospace" }}
-                            >
-                              {memesMetrics.volumeChange >= 0 ? "▲ " : "▼ "}
-                              {formatTVL(Math.abs(memesMetrics.volumeChange))} 24h
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Coming Soon!</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <Card className="w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50]">
-            <div className="px-4 py-3 flex items-center justify-between">
-              <h3 className="text-[#a0a8aa] text-xs font-medium">
-                <span className="sm:hidden">Tracked Tokens</span>
-                <span className="hidden sm:inline">Tracked Tokens</span>
-              </h3>
-            </div>
-            <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
-              {tokenLoading ? (
-                <div className="flex flex-col justify-start space-y-2">
-                  <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
-                  <div className="flex items-center h-4">
-                    <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col justify-start space-y-2">
-                  <p className="text-2xl font-bold text-white font-teodor tracking-tight">
-                    {tokenData?.filteredCount !== undefined
-                      ? allTokensCache?.length || tokenData.totalCount || 0
-                      : "TO DO"}
-                  </p>
-                  <div className="flex items-center h-4"></div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <HyperEVMOverviewMetrics
+          hyperEVMData={hyperEVMData}
+          hyperEVMLoading={hyperEVMLoading}
+          tokenListData={tokenData}
+          tokenListLoading={tokenLoading}
+          memesMetricsData={memesMetrics}
+          memesMetricsLoading={memesLoading}
+        />
       </div>
       <Card className="bg-[#0f1a1f] border-[#51d2c1] rounded-2xl shadow">
         <CardContent className="p-6">

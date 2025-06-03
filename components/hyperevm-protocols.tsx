@@ -1,43 +1,45 @@
-import { useHyperEVMData } from "@/hooks/useHyperEVMData"
-import { formatTVL } from "@/utils/formatter"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Card, CardContent } from "@/components/ui/card"
+"use client"
+
+import { useHyperEVMData } from "@/hooks/use-hyperevm-data"
+import { formatTVL } from "@/lib/utils"
+import { MetricsCard } from "@/components/ui/metrics-card"
 
 const HyperEVMProtocols = () => {
-  const { hyperEVMData, hyperEVMLoading, hyperEVMError } = useHyperEVMData()
+  const { data: hyperEVMData, loading: hyperEVMLoading, error: hyperEVMError } = useHyperEVMData()
 
-  const metrics = [
-    {
-      title: "HyperEVM TVL",
-      value: hyperEVMLoading ? null : hyperEVMData?.tvl,
-      change: hyperEVMLoading
-        ? ""
-        : hyperEVMData && hyperEVMData.previous_day_tvl
-          ? `${formatTVL(hyperEVMData.previous_day_tvl)} 24h`
-          : "",
-      isLoading: hyperEVMLoading,
-      isPositive: hyperEVMData?.tvl > hyperEVMData?.previous_day_tvl,
-    },
-  ]
+  console.log("HyperEVMProtocols (single card) - Fetched Data:", hyperEVMData)
+
+  const tvlMetric = {
+    title: "HyperEVM TVL", // This is the single card for total TVL
+    value: hyperEVMData?.current_tvl ?? 0,
+    change: hyperEVMData?.daily_change
+      ? `${hyperEVMData.daily_change >= 0 ? "+" : ""}${formatTVL(hyperEVMData.daily_change)} 24h`
+      : undefined,
+    isPositive: (hyperEVMData?.daily_change ?? 0) >= 0,
+    lastUpdated: hyperEVMData?.last_updated,
+  }
+
+  if (hyperEVMError) {
+    return (
+      <div className="w-full p-4 text-red-500 bg-red-100 border border-red-500 rounded-md">
+        <p className="font-bold">Error loading HyperEVM data:</p>
+        <p>{typeof hyperEVMError === "string" ? hyperEVMError : JSON.stringify(hyperEVMError)}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full">
-      <h2 className="text-lg font-semibold mb-4">HyperEVM</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {metrics.map((metric, index) => (
-          <Card key={index}>
-            <CardContent className="flex flex-col gap-2">
-              <div className="text-sm font-medium">{metric.title}</div>
-              {metric.isLoading ? (
-                <Skeleton className="w-[120px] h-[24px]" />
-              ) : (
-                <div className="text-2xl font-bold">{metric.value ? formatTVL(metric.value) : "N/A"}</div>
-              )}
-              <span className={`hidden sm:inline text-xs font-medium font-sans text-[#868d8f]`}>{metric.change}</span>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <MetricsCard
+        title={tvlMetric.title}
+        value={hyperEVMLoading ? "Loading..." : formatTVL(tvlMetric.value)}
+        change={tvlMetric.change}
+        isPositive={tvlMetric.isPositive}
+        isLoading={hyperEVMLoading}
+        updateFrequencyHours={3}
+        lastUpdatedAt={tvlMetric.lastUpdated}
+        showIndicator={true}
+      />
     </div>
   )
 }

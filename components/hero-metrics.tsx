@@ -162,7 +162,7 @@ export default function HeroMetrics() {
       const yesterday = data[data.length - 2]?.value
       if (typeof today === "number" && typeof yesterday === "number") {
         const diff = today - yesterday
-        return `${diff >= 0 ? "▲" : "▼"} ${formatTVL(Math.abs(diff))} 24h`
+        return `${diff >= 0 ? "+" : "-"}${formatTVL(Math.abs(diff))} 24h`
       }
     }
     return ""
@@ -189,7 +189,11 @@ export default function HeroMetrics() {
         ) : (
           "TO DO"
         ),
-        change: duneLoading ? "" : duneData ? formatNetflow(duneData.netflow).replace(/^-/, "▼ ") : "",
+        change: duneLoading
+          ? ""
+          : duneData && typeof duneData.netflow === "number"
+            ? `${formatNetflow(duneData.netflow)} 24h`
+            : "",
         isPositive: duneData ? duneData.netflow >= 0 : true,
         isLoading: duneLoading,
         color: "#20a67d",
@@ -206,8 +210,13 @@ export default function HeroMetrics() {
         ),
         change: revenueLoading
           ? ""
-          : revenueData && revenueData.previous_day_revenue && revenueData.daily_revenue
-            ? `${revenueData.daily_revenue >= revenueData.previous_day_revenue ? "▲" : "▼"} ${formatRevenue(Math.abs(revenueData.daily_revenue - revenueData.previous_day_revenue))} 24h`
+          : revenueData &&
+              typeof revenueData.daily_revenue === "number" &&
+              typeof revenueData.previous_day_revenue === "number"
+            ? (() => {
+                const dailyDiff = revenueData.daily_revenue - revenueData.previous_day_revenue
+                return `${dailyDiff >= 0 ? "+" : "-"}${formatRevenue(Math.abs(dailyDiff))} 24h`
+              })()
             : "",
         isPositive:
           revenueData && revenueData.previous_day_revenue
@@ -243,8 +252,8 @@ export default function HeroMetrics() {
         ),
         change: duneLoading
           ? ""
-          : duneData && typeof duneData.address_count === "number"
-            ? `▲ ${formatWallets(duneData.address_count, "0")} today`
+          : duneData && typeof duneData.address_count === "number" && duneData.address_count >= 0
+            ? `+${formatWallets(duneData.address_count, "0")} today`
             : "",
         isPositive: true,
         isLoading: duneLoading,
@@ -348,6 +357,7 @@ export default function HeroMetrics() {
               updateFrequencyHours={metricId === "tvl" || metricId === "wallets" ? 4 : 24}
               lastUpdatedAt={getLastUpdatedAt()}
               isRealtime={false}
+              showChangeArrow={true}
             />
           )
         })}
