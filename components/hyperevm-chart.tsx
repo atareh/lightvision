@@ -82,6 +82,13 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
   }, [chartData])
 
   useEffect(() => {
+    // Debug logging
+    if (Object.keys(protocolColors).length > 0) {
+      console.log("Protocol colors assigned:", protocolColors)
+    }
+  }, [protocolColors])
+
+  useEffect(() => {
     const updateDimensions = () => {
       if (chartContainerRef.current) {
         const { width, height } = chartContainerRef.current.getBoundingClientRect()
@@ -287,12 +294,24 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
             }}
           >
             <defs>
-              {calculatedChartData.protocols.map((protocol) => (
-                <linearGradient key={protocol} id={`gradient-${protocol}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor={protocolColors[protocol] || "#ccc"} stopOpacity="0.8" />
-                  <stop offset="100%" stopColor={protocolColors[protocol] || "#ccc"} stopOpacity="0.4" />
-                </linearGradient>
-              ))}
+              {calculatedChartData.protocols.map((protocol) => {
+                // Create a safe ID by removing special characters and ensuring uniqueness
+                const safeId = `gradient-${protocol.replace(/[^a-zA-Z0-9]/g, "")}-${protocol.length}`
+                return (
+                  <linearGradient key={protocol} id={safeId} x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor={protocolColors[protocol] || "#ccc"} stopOpacity="0.4" />
+                    <stop offset="50%" stopColor={protocolColors[protocol] || "#ccc"} stopOpacity="0.2" />
+                    <stop offset="100%" stopColor={protocolColors[protocol] || "#ccc"} stopOpacity="0.05" />
+                  </linearGradient>
+                )
+              })}
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
             </defs>
             <text
               x={chartDimensions.width / 2}
@@ -395,7 +414,11 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
                     day.points.some((p) => p.protocol === protocol && p.value > 0),
                   )
                   if (!hasData) return null
+
                   let pathData = ""
+                  let strokePath = ""
+
+                  // Create area path (for fill)
                   calculatedChartData.stackedData.forEach((dayData, i) => {
                     const point = dayData.points.find((p) => p.protocol === protocol)
                     if (point) {
@@ -410,7 +433,36 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
                     if (point) pathData += ` L ${point.x} ${point.y}`
                   }
                   if (pathData) pathData += " Z"
-                  return <path key={protocol} d={pathData} fill={protocolColors[protocol] || "#06b6d4"} />
+
+                  // Create stroke path (top edge only)
+                  calculatedChartData.stackedData.forEach((dayData, i) => {
+                    const point = dayData.points.find((p) => p.protocol === protocol)
+                    if (point) {
+                      if (i === 0) strokePath += `M ${point.x} ${point.y}`
+                      else strokePath += ` L ${point.x} ${point.y}`
+                    }
+                  })
+
+                  // Use the same safe ID format as defined in the defs section
+                  const safeId = `gradient-${protocol.replace(/[^a-zA-Z0-9]/g, "")}-${protocol.length}`
+
+                  return (
+                    <g key={protocol}>
+                      {/* Area fill with gradient */}
+                      <path d={pathData} fill={`url(#${safeId})`} className="transition-all duration-500" />
+                      {/* Glowing stroke on top edge */}
+                      <path
+                        d={strokePath}
+                        fill="none"
+                        stroke={protocolColors[protocol] || "#06b6d4"}
+                        strokeWidth="2"
+                        filter="url(#glow)"
+                        className="transition-all duration-500"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </g>
+                  )
                 })}
                 {tooltip.show && hoveredPoint !== null && calculatedChartData.stackedData[hoveredPoint] && (
                   <line
@@ -429,17 +481,19 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
           </svg>
           {tooltip.show && tooltip.data && (
             <div
-              className="absolute z-50 bg-[#0f1a1f] rounded-lg px-4 py-3 text-sm pointer-events-none shadow-xl border border-[#20a67d] min-w-[240px] max-w-[280px]"
+              className="absolute z-50 bg-[#0f1a1f] rounded-lg px-4 py-3 text-sm pointer-events-none shadow-xl min-w-[240px] max-w-[280px]"
               style={{
                 left:
                   tooltip.x > chartDimensions.width / 2
                     ? `${Math.max(0, Math.min(chartDimensions.width - 280, tooltip.x - 280))}px`
                     : `${Math.max(0, Math.min(chartDimensions.width - 280, tooltip.x + 20))}px`,
                 top: `${Math.max(10, Math.min(chartDimensions.height - 200, tooltip.y - 100))}px`,
+                border: `1px solid #20a67d`,
+                boxShadow: `0 0 20px #20a67d40`,
               }}
             >
-              <div className="text-white font-bold text-sm mb-2">{formatDateTooltip(tooltip.date)}</div>
-              <div className="text-white font-bold mb-2 text-sm">Total: {formatValue(tooltip.data.total)}</div>
+              <div className="text-white font-bold text-base mb-1">{formatDateTooltip(tooltip.date)}</div>
+              <div className="text-white font-bold mb-2 text-base">Total: {formatValue(tooltip.data.total)}</div>
               <div className="space-y-1">
                 {tooltip.data.points
                   .filter((point) => point.value > 0)
@@ -451,7 +505,7 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
                           className="w-3 h-3 rounded-full flex-shrink-0"
                           style={{ backgroundColor: protocolColors[point.protocol] }}
                         />
-                        <span className="text-xs text-gray-300 truncate">{point.protocol}</span>
+                        <span className="text-xs text-[#868d8f] truncate">{point.protocol}</span>
                       </div>
                       <span className="text-xs text-white font-mono">{formatValue(point.value)}</span>
                     </div>
