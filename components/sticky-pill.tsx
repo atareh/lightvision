@@ -6,7 +6,50 @@ import { formatCurrency, abbreviateNumber } from "@/lib/utils"
 export default function StickyPill() {
   const { data: cryptoData } = useCryptoData()
 
-  return (
+  return !cryptoData ? (
+    <div
+      className="sticky top-0 z-40 bg-[#0f1a1f] rounded-b-[28px] px-1 sm:px-4 py-1 sm:py-2 shadow-lg mx-auto w-fit transition-all duration-300 ease-in-out"
+      style={{ marginTop: "-1px" }}
+    >
+      {/* Desktop Loading Layout */}
+      <div
+        className="hidden sm:flex items-center justify-between gap-2 sm:gap-3 md:gap-4 font-mono uppercase min-w-[250px] sm:min-w-[400px] md:min-w-[550px]"
+        style={{ fontSize: "11px" }}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-[#868d8f]">MARKET CAP:</span>
+          <div className="animate-pulse h-4 bg-[#2d5a4f] rounded w-16"></div>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[#51d2c1] font-medium">$HYPE:</span>
+          <div className="animate-pulse h-4 bg-[#2d5a4f] rounded w-12"></div>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[#868d8f]">24H VOL:</span>
+          <div className="animate-pulse h-4 bg-[#2d5a4f] rounded w-16"></div>
+        </div>
+      </div>
+
+      {/* Mobile Loading Layout */}
+      <div
+        className="flex sm:hidden items-center justify-center gap-2 font-mono uppercase px-2"
+        style={{ fontSize: "10px" }}
+      >
+        <div className="flex items-center gap-1">
+          <span className="text-[#868d8f]">MCAP:</span>
+          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-12"></div>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[#51d2c1] font-medium">$HYPE:</span>
+          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-10"></div>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[#868d8f]">VOL:</span>
+          <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-12"></div>
+        </div>
+      </div>
+    </div>
+  ) : (
     <div
       className="sticky top-0 z-40 bg-[#0f1a1f] rounded-b-[28px] px-1 sm:px-4 py-1 sm:py-2 shadow-lg mx-auto w-fit transition-all duration-300 ease-in-out"
       style={{ marginTop: "-1px" }}
