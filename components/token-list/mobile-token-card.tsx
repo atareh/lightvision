@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { Button } from "@/components/ui/button"
-import { Copy, Users } from "lucide-react"
+import { Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // Use the SAME Token interface as the desktop table and useTokenData hook
@@ -212,15 +212,6 @@ const MobileTokenCard: React.FC<MobileTokenCardProps> = ({
           <span className="bg-[#2A3F4D] px-1.5 py-0.5 rounded font-mono text-[8px]">
             MCAP {formatTVL(marketCapDisplayValue)}
           </span>
-          {token.holder_count !== null && token.holder_count !== undefined && (
-            <span
-              className="bg-[#2A3F4D] px-1.5 py-0.5 rounded font-mono text-[8px] flex items-center"
-              title={`${token.holder_count.toLocaleString()} holders`}
-            >
-              <Users className="h-2.5 w-2.5 mr-0.5 opacity-70 flex-shrink-0" />
-              {token.holder_count.toLocaleString()}
-            </span>
-          )}
         </div>
       </div>
 

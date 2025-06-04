@@ -4,7 +4,7 @@ import type React from "react"
 import { TableCell, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Copy, ExternalLink, Users } from "lucide-react"
+import { Copy, ExternalLink } from "lucide-react"
 import type { Token } from "@/hooks/use-token-data"
 
 // Props expected by this component
@@ -24,7 +24,7 @@ export default function TokenTableRow({
   token,
   formatPrice,
   formatTVL,
-  formatPercentageChange,
+  formatPercentageChange, // Use the correct prop name
   formatAge,
   copyToClipboard,
   getCellAnimationClasses,
@@ -121,12 +121,6 @@ export default function TokenTableRow({
                 )
               })()}
             </div>
-            {token.holder_count !== null && token.holder_count !== undefined && (
-              <div className="text-xs text-[#868d8f] flex items-center gap-1 mt-0.5" title="Holders">
-                <Users className="h-3 w-3 opacity-70 flex-shrink-0" />
-                <span className="truncate">{token.holder_count.toLocaleString()}</span>
-              </div>
-            )}
           </div>
         </div>
       </TableCell>

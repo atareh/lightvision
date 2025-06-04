@@ -6,7 +6,6 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error("🔴 CRITICAL: Supabase URL or Service Key is missing for token-price-refresh.")
-  // throw new Error("Supabase credentials are not configured."); // Optional: hard fail
 }
 const supabase = createClient(supabaseUrl!, supabaseServiceKey!)
 
@@ -81,7 +80,6 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
     let totalErrors = 0
     let supabaseOperations = 0
     let dexscreenerCalls = 0
-    let hyperscanCalls = 0 // <-- ADD THIS LINE
     const results = []
     const errorDetails = []
 
@@ -106,7 +104,6 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
         totalErrors += batchResult.errors
         supabaseOperations += batchResult.supabaseOps || 0
         dexscreenerCalls += batchResult.dexscreenerCalls || 0
-        hyperscanCalls += batchResult.hyperscanCalls || 0 // <-- ADD THIS LINE
 
         if (batchResult.errorDetails && batchResult.errorDetails.length > 0) {
           errorDetails.push(...batchResult.errorDetails)
@@ -158,7 +155,7 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
 ✅ Tokens Processed: ${totalProcessed}
 ❌ Errors: ${totalErrors}
 ==============================================
-`)
+  `)
     return NextResponse.json({
       success,
       execution_id: executionId,
@@ -169,9 +166,8 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
       errors: totalErrors,
       supabase_operations: supabaseOperations,
       dexscreener_calls: dexscreenerCalls,
-      hyperscan_calls: hyperscanCalls, // <-- ADD THIS LINE
       batches_processed: results.length,
-      mode: "price_and_holders", // <-- UPDATE THIS LINE
+      mode: "price_only",
       results,
       error_details: errorDetails.length > 0 ? errorDetails : undefined,
       test_mode: isManualTest,
@@ -188,7 +184,7 @@ async function handleTokenPriceRefresh(request: NextRequest, requireAuth: boolea
 💥 Error: ${errorMsg}
 ${error instanceof Error && error.stack ? `📚 Stack: ${error.stack}` : ""}
 ===========================================
-`)
+  `)
 
     return NextResponse.json(
       {
@@ -207,230 +203,185 @@ ${error instanceof Error && error.stack ? `📚 Stack: ${error.stack}` : ""}
 }
 
 async function processPriceBatch(batchOfAddresses: string[], executionId: string) {
-  // batchOfAddresses are already lowercased
-  let processedCount = 0
-  let errorCount = 0
-  let supabaseOpsCount = 0
-  let dexscreenerCallsCount = 0
-  let hyperscanCallsCount = 0
-  const batchErrorDetails: any[] = []
-  const batchTokenResults: any[] = []
-
-  // 1. Fetch DexScreener data for the current batch
-  const dexscreenerDataMap = new Map<string, any>()
-  if (batchOfAddresses.length > 0) {
-    const dexscreenerApiUrl = `https://api.dexscreener.com/tokens/v1/hyperevm/${batchOfAddresses.join(",")}`
-    console.log(
-      `🔗 [${executionId}] Calling DexScreener API for batch: ${batchOfAddresses.length} tokens. URL: ${dexscreenerApiUrl}`,
-    )
-    const dsFetchStart = Date.now()
-    dexscreenerCallsCount++
-    try {
-      const dsResponse = await fetch(dexscreenerApiUrl, {
-        headers: { "User-Agent": "HyperLiquid-Core/1.0", Accept: "application/json" },
-      })
-      console.log(
-        `⏱️ [${executionId}] DexScreener API call took ${Date.now() - dsFetchStart}ms. Status: ${dsResponse.status}`,
-      )
-      if (dsResponse.ok) {
-        const dsData = await dsResponse.json()
-        if (Array.isArray(dsData)) {
-          dsData.forEach((item) => {
-            if (item.baseToken?.address) {
-              dexscreenerDataMap.set(item.baseToken.address.toLowerCase(), item)
-            }
-          })
-          console.log(
-            `📊 [${executionId}] DexScreener response: ${dsData.length} pairs found, mapped ${dexscreenerDataMap.size} tokens.`,
-          )
-        } else {
-          console.warn(`[${executionId}] DexScreener response was not an array for batch.`)
-          batchErrorDetails.push({
-            type: "dexscreener_response_format_error",
-            message: "Expected array",
-            tokens: batchOfAddresses,
-          })
-        }
-      } else {
-        console.error(`❌ [${executionId}] DexScreener API error for batch: ${dsResponse.status}`)
-        batchErrorDetails.push({ type: "dexscreener_api_error", status: dsResponse.status, tokens: batchOfAddresses })
-      }
-    } catch (e: any) {
-      console.error(`❌ [${executionId}] DexScreener API fetch failed for batch: ${e.message}`)
-      batchErrorDetails.push({ type: "dexscreener_fetch_exception", error: e.message, tokens: batchOfAddresses })
-    }
-  }
-
-  // 2. Iterate through each address in the original batch to fetch holder counts and upsert metrics
-  for (const address of batchOfAddresses) {
-    // address is already lowercased
-    const dexscreenerItem = dexscreenerDataMap.get(address)
-    let holderCountStr: string | null = null
-    const tokenSymbolForLogs = dexscreenerItem?.baseToken?.symbol || address.slice(0, 6) + "..."
-
-    try {
-      console.log(`🔎 [${executionId}] Fetching holder count for ${tokenSymbolForLogs} (${address})`)
-      const hyperScanUrl = `https://www.hyperscan.com/api/v2/tokens/${address}/counters`
-      const hsFetchStart = Date.now()
-      hyperscanCallsCount++
-      const hyperScanResponse = await fetch(hyperScanUrl, { headers: { "User-Agent": "HyperLiquid-Core/1.0" } })
-
-      console.log(
-        `⏱️ [${executionId}] HyperScan call for ${tokenSymbolForLogs} (${address}) took ${Date.now() - hsFetchStart}ms. Status: ${hyperScanResponse.status}`,
-      )
-
-      if (hyperScanResponse.ok) {
-        const scanData = await hyperScanResponse.json()
-        if (scanData && typeof scanData.token_holders_count === "string") {
-          holderCountStr = scanData.token_holders_count
-          console.log(`✅ [${executionId}] Holder count for ${tokenSymbolForLogs} (${address}): ${holderCountStr}`)
-        } else {
-          console.warn(
-            `[${executionId}] Invalid or missing holder count data for ${tokenSymbolForLogs} (${address}):`,
-            scanData,
-          )
-          batchErrorDetails.push({ type: "hyperscan_data_format_error", token_symbol: tokenSymbolForLogs, address })
-        }
-      } else {
-        console.warn(
-          `[${executionId}] Failed to fetch holder count for ${tokenSymbolForLogs} (${address}): ${hyperScanResponse.status}`,
-        )
-        batchErrorDetails.push({
-          type: "hyperscan_api_error",
-          status: hyperScanResponse.status,
-          token_symbol: tokenSymbolForLogs,
-          address,
-        })
-      }
-      // Polite delay for HyperScan API
-      await new Promise((resolve) => setTimeout(resolve, 250)) // 250ms delay
-    } catch (e: any) {
-      console.error(
-        `❌ [${executionId}] Error fetching/processing holder count for ${tokenSymbolForLogs} (${address}): ${e.message}`,
-      )
-      batchErrorDetails.push({
-        type: "hyperscan_fetch_exception",
-        error: e.message,
-        token_symbol: tokenSymbolForLogs,
-        address,
-      })
-    }
-
-    const upsertResult = await upsertTokenMetrics(address, dexscreenerItem, holderCountStr, executionId)
-    supabaseOpsCount += upsertResult.supabaseOps
-
-    if (upsertResult.error) {
-      errorCount++ // Only count actual DB/processing errors here
-      batchErrorDetails.push({
-        type: "metrics_upsert_error",
-        token_symbol: tokenSymbolForLogs,
-        address: address,
-        error: upsertResult.error,
-      })
-    } else if (!upsertResult.noNewData) {
-      processedCount++
-    }
-    batchTokenResults.push({
-      token: tokenSymbolForLogs,
-      address,
-      status: upsertResult.error ? "error" : upsertResult.noNewData ? "no_new_data" : "success",
-    })
-  }
-
-  // Consolidate errors: API errors from DexScreener/HyperScan might affect multiple tokens or the whole batch
-  const apiErrorCount = batchErrorDetails.filter(
-    (e) => e.type.startsWith("dexscreener_") || e.type.startsWith("hyperscan_api_error"),
-  ).length
-
-  return {
-    processed: processedCount,
-    errors: errorCount + apiErrorCount, // Sum of DB errors and critical API errors
-    errorDetails: batchErrorDetails,
-    supabaseOps: supabaseOpsCount,
-    dexscreenerCalls: dexscreenerCallsCount,
-    hyperscanCalls: hyperscanCallsCount,
-    tokenResults: batchTokenResults,
-  }
-}
-
-async function upsertTokenMetrics(
-  contractAddress: string, // already lowercased
-  dexscreenerPairData: any | null,
-  holderCountStr: string | null,
-  executionId: string,
-) {
-  const tokenSymbolForLogs = dexscreenerPairData?.baseToken?.symbol || contractAddress.slice(0, 6) + "..."
-  let supabaseOps = 0
-
-  const metricsData: { [key: string]: any } = {
-    contract_address: contractAddress,
-    recorded_at: new Date().toISOString(),
-  }
-
-  let hasNewPriceData = false
-  if (dexscreenerPairData) {
-    metricsData.price_usd = dexscreenerPairData.priceUsd ? Number.parseFloat(dexscreenerPairData.priceUsd) : null
-    metricsData.market_cap = dexscreenerPairData.marketCap ? Number.parseFloat(dexscreenerPairData.marketCap) : null
-    metricsData.fdv = dexscreenerPairData.fdv ? Number.parseFloat(dexscreenerPairData.fdv) : null
-    metricsData.price_change_30m = dexscreenerPairData.priceChange?.h1
-      ? Number.parseFloat(dexscreenerPairData.priceChange.h1)
-      : null
-    metricsData.price_change_24h = dexscreenerPairData.priceChange?.h24
-      ? Number.parseFloat(dexscreenerPairData.priceChange.h24)
-      : null
-    metricsData.volume_24h = dexscreenerPairData.volume?.h24 ? Number.parseFloat(dexscreenerPairData.volume.h24) : null
-    metricsData.liquidity_usd = dexscreenerPairData.liquidity?.usd
-      ? Number.parseFloat(dexscreenerPairData.liquidity.usd)
-      : null
-    if (metricsData.price_usd !== null || metricsData.market_cap !== null || metricsData.volume_24h !== null) {
-      hasNewPriceData = true
-    }
-  }
-
-  let hasNewHolderData = false
-  if (holderCountStr !== null) {
-    const parsedHolderCount = Number.parseInt(holderCountStr, 10)
-    if (!isNaN(parsedHolderCount)) {
-      metricsData.holder_count = parsedHolderCount
-      hasNewHolderData = true
-    } else {
-      metricsData.holder_count = null
-      console.warn(
-        `[${executionId}] Failed to parse holder count '${holderCountStr}' for ${tokenSymbolForLogs} (${contractAddress})`,
-      )
-    }
-  }
-
-  if (!hasNewPriceData && !hasNewHolderData) {
-    console.log(
-      `[${executionId}] No new price or holder data for ${tokenSymbolForLogs} (${contractAddress}). Skipping metrics insert.`,
-    )
-    return { error: null, supabaseOps, noNewData: true }
-  }
-
-  console.log(
-    `💾 [${executionId}] Upserting metrics for ${tokenSymbolForLogs} (${contractAddress}). Price data: ${hasNewPriceData}, Holder data: ${hasNewHolderData}`,
-  )
+  // batchOfAddresses are already lowercased from the main function
+  let processed = 0
+  let errors = 0
+  let totalSupabaseOps = 0
+  let dexscreenerCalls = 0
+  const errorDetails = []
+  const tokenResults = []
 
   try {
+    const dexscreenerApiUrl = `https://api.dexscreener.com/tokens/v1/hyperevm/${batchOfAddresses.join(",")}` // Using the user's original endpoint structure
+
+    console.log(
+      `🔗 [${executionId}] Calling DexScreener API for price batch: ${batchOfAddresses.length} tokens. URL: ${dexscreenerApiUrl}`,
+    )
+    const fetchStartTime = Date.now()
+    dexscreenerCalls++
+
+    const response = await fetch(dexscreenerApiUrl, {
+      headers: {
+        "User-Agent": "HyperLiquid-Core/1.0",
+        Accept: "application/json",
+      },
+    })
+    const fetchDuration = Date.now() - fetchStartTime
+
+    console.log(`⏱️ [${executionId}] DexScreener API call took ${fetchDuration}ms`)
+
+    if (!response.ok) {
+      errors += batchOfAddresses.length
+      errorDetails.push({ type: "api_error", status: response.status, tokens: batchOfAddresses })
+      throw new Error(`HTTP error! Status: ${response.status}`)
+    }
+    const parseStartTime = Date.now()
+    const responseData = await response.json()
+    const parseDuration = Date.now() - parseStartTime
+
+    console.log(`⏱️ [${executionId}] JSON parsing took ${parseDuration}ms`)
+    console.log(
+      `📊 [${executionId}] DexScreener response: ${Array.isArray(responseData) ? responseData.length : 0} pairs found`,
+    )
+
+    if (!Array.isArray(responseData)) {
+      console.warn(`[${executionId}] Unexpected API response format. Expected array. Got:`, typeof responseData)
+      errors += batchOfAddresses.length
+      errorDetails.push({ type: "api_response_format_error", message: "Expected array", tokens: batchOfAddresses })
+      return { processed, errors, errorDetails, supabaseOps: totalSupabaseOps, dexscreenerCalls } // Or throw
+    }
+
+    for (const item of responseData) {
+      // Changed from 'pair' to 'item' for clarity
+      const baseTokenAddress = item.baseToken?.address?.toLowerCase()
+      const baseTokenSymbol = item.baseToken?.symbol
+
+      if (!baseTokenAddress) {
+        console.warn(
+          `[${executionId}] Skipping item due to missing baseToken address. Item: ${JSON.stringify(item).slice(0, 100)}`,
+        )
+        errors++
+        errorDetails.push({
+          type: "missing_data",
+          message: "Missing baseToken address",
+          token_symbol: baseTokenSymbol || "Unknown",
+        })
+        continue
+      }
+
+      // Defensive Check: Ensure this baseTokenAddress was in our original request batch
+      // batchOfAddresses is already lowercased.
+      if (!batchOfAddresses.includes(baseTokenAddress)) {
+        console.warn(
+          `[${executionId}] DexScreener returned token ${baseTokenSymbol} (${baseTokenAddress}) which was not in the current DB query batch. Skipping metrics insertion.`,
+        )
+        errorDetails.push({ type: "unexpected_token", token_symbol: baseTokenSymbol, address: baseTokenAddress })
+        continue
+      }
+
+      try {
+        const dbStartTime = Date.now()
+        // Pass the whole 'item' which is expected to be the 'pair' object by insertPriceMetrics
+        const result = await insertPriceMetrics(item, executionId) // insertPriceMetrics will also lowercase baseToken.address
+        const dbDuration = Date.now() - dbStartTime
+
+        console.log(`⏱️ [${executionId}] Price metrics for ${baseTokenSymbol} took ${dbDuration}ms`)
+
+        totalSupabaseOps += result.supabaseOps || 0
+        dexscreenerCalls++
+        tokenResults.push({
+          token: baseTokenSymbol,
+          address: baseTokenAddress,
+          duration: dbDuration,
+        })
+
+        if (result.error) {
+          errors++
+          errorDetails.push({
+            type: "metrics_insert_error",
+            token_symbol: baseTokenSymbol,
+            address: baseTokenAddress,
+            error: result.error,
+          })
+        } else {
+          processed++
+        }
+      } catch (e: any) {
+        errors++
+        errorDetails.push({
+          type: "metrics_insert_exception",
+          token_symbol: baseTokenSymbol,
+          address: baseTokenAddress,
+          error: e.message,
+        })
+        console.error(
+          `[${executionId}] Error processing metrics for ${baseTokenSymbol} (${baseTokenAddress}): ${e.message}`,
+        )
+      }
+    }
+  } catch (error: any) {
+    console.error(`❌ [${executionId}] Batch failed:`, error.message)
+    if (!errorDetails.find((ed) => ed.type === "api_error")) {
+      errorDetails.push({ type: "batch_processing_error", error: error.message, tokens: batchOfAddresses })
+    }
+    if (processed === 0 && errors === 0 && batchOfAddresses.length > 0) {
+      errors = batchOfAddresses.length
+    }
+  }
+  return { processed, errors, errorDetails, supabaseOps: totalSupabaseOps, dexscreenerCalls, tokenResults }
+}
+
+async function insertPriceMetrics(pairData: any, executionId: string) {
+  // pairData is an item from the DexScreener response array
+  const baseToken = pairData.baseToken
+  if (!baseToken?.address || typeof baseToken.address !== "string") {
+    // Added type check for address
+    console.warn(
+      `[${executionId}] No valid baseToken.address found in pairData. Skipping metrics. Data: ${JSON.stringify(pairData).slice(0, 100)}`,
+    )
+    return { error: "No valid baseToken.address found", supabaseOps: 0 }
+  }
+
+  const contractAddress = baseToken.address.toLowerCase() // Ensure lowercase
+  const tokenSymbol = baseToken.symbol || "Unknown"
+
+  console.log(`💰 [${executionId}] Inserting price metrics for ${tokenSymbol} (Address: ${contractAddress})`)
+
+  let supabaseOps = 0
+
+  try {
+    const metricsData = {
+      contract_address: contractAddress, // Use lowercased address
+      price_usd: pairData.priceUsd ? Number.parseFloat(pairData.priceUsd) : null,
+      market_cap: pairData.marketCap ? Number.parseFloat(pairData.marketCap) : null,
+      fdv: pairData.fdv ? Number.parseFloat(pairData.fdv) : null,
+      price_change_30m: pairData.priceChange?.h1 ? Number.parseFloat(pairData.priceChange.h1) : null, // Assuming h1 is 30m/1h
+      price_change_24h: pairData.priceChange?.h24 ? Number.parseFloat(pairData.priceChange.h24) : null,
+      volume_24h: pairData.volume?.h24 ? Number.parseFloat(pairData.volume.h24) : null,
+      liquidity_usd: pairData.liquidity?.usd ? Number.parseFloat(pairData.liquidity.usd) : null,
+      recorded_at: new Date().toISOString(),
+    }
+
     const { error: metricsError } = await supabase.from("token_metrics").insert([metricsData])
     supabaseOps++
 
     if (metricsError) {
       console.error(
-        `❌ [${executionId}] Metrics upsert failed for ${tokenSymbolForLogs} (${contractAddress}): ${metricsError.message}. Data: ${JSON.stringify(metricsData)}`,
+        `❌ [${executionId}] Price metrics insert failed for ${tokenSymbol} (${contractAddress}): ${metricsError.message}`,
       )
-      return { error: `Metrics upsert failed: ${metricsError.message}`, supabaseOps, noNewData: false }
+      return { error: `Metrics insert failed: ${metricsError.message}`, supabaseOps }
     }
 
-    console.log(`✅ [${executionId}] Metrics upserted for ${tokenSymbolForLogs} (${contractAddress})`)
-    return { error: null, supabaseOps, noNewData: false }
+    console.log(`✅ [${executionId}] Price metrics inserted for ${tokenSymbol} (${contractAddress})`)
+    return { error: null, supabaseOps } // Success
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error"
-    console.error(
-      `❌ [${executionId}] Metrics upsert exception for ${tokenSymbolForLogs} (${contractAddress}): ${errorMsg}`,
-    )
-    return { supabaseOps, error: errorMsg, noNewData: false }
+    console.error(`❌ [${executionId}] Price metrics failed for ${tokenSymbol} (${contractAddress}): ${errorMsg}`)
+
+    return {
+      supabaseOps,
+      error: errorMsg,
+    }
   }
 }
 

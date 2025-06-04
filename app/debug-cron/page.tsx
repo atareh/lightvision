@@ -1,170 +1,172 @@
 "use client"
 
+import DebugAuth from "@/components/debug-auth"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { toast } from "sonner"
-
-interface CronEndpoint {
-  id: string
-  name: string
-  description: string
-  path: string
-  method?: "GET" | "POST"
-}
-
-const cronEndpoints: CronEndpoint[] = [
-  {
-    id: "token-price-refresh",
-    name: "Token Price & Holder Refresh",
-    description:
-      "Fetches latest token prices from DexScreener and holder counts from HyperScan. Updates token_metrics table. Runs every 30 mins.",
-    path: "/api/cron/token-price-refresh",
-    method: "POST",
-  },
-  {
-    id: "geckoterminal-sync",
-    name: "GeckoTerminal Sync (All Tokens)",
-    description: "Syncs all tokens from GeckoTerminal. Runs daily.",
-    path: "/api/cron/geckoterminal-sync",
-    method: "POST",
-  },
-  {
-    id: "update-token-filter-status",
-    name: "Update Token Filter Status",
-    description: "Checks and updates low liquidity/volume flags for tokens. Runs every hour.",
-    path: "/api/cron/update-token-filter-status",
-    method: "POST",
-  },
-  {
-    id: "token-social-sync",
-    name: "Token Social Sync",
-    description: "Syncs social media links for tokens. Runs daily.",
-    path: "/api/cron/token-social-sync",
-    method: "POST",
-  },
-  {
-    id: "hyperevm-sync-llama",
-    name: "HyperEVM Llama TVL Sync",
-    description: "Syncs HyperEVM TVL data from DefiLlama. Runs every hour.",
-    path: "/api/cron/hyperevm-sync-llama",
-    method: "POST",
-  },
-  {
-    id: "hyperliquid-sync-revenue",
-    name: "Hyperliquid Llama Revenue Sync",
-    description: "Syncs Hyperliquid revenue data from DefiLlama. Runs daily.",
-    path: "/api/cron/hyperliquid-sync-revenue",
-    method: "POST",
-  },
-  {
-    id: "daily-dune-sync",
-    name: "Daily Dune Analytics Sync",
-    description: "Triggers daily Dune Analytics queries. Runs daily.",
-    path: "/api/cron/daily-dune-sync",
-    method: "POST",
-  },
-  {
-    id: "poll-dune-results",
-    name: "Poll Dune Analytics Results",
-    description: "Polls for results of triggered Dune queries. Runs frequently.",
-    path: "/api/cron/poll-dune-results",
-    method: "POST",
-  },
-  // Add other cron jobs here if needed
-]
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Play, Clock, AlertCircle } from "lucide-react"
 
 export default function DebugCronPage() {
-  const [results, setResults] = useState<Record<string, any>>({})
-  const [loading, setLoading] = useState<Record<string, boolean>>({})
-  const [debugPassword, setDebugPassword] = useState<string>("")
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<any>(null)
 
-  const handleRunCron = async (endpoint: CronEndpoint) => {
-    if (!process.env.NEXT_PUBLIC_DEBUG_PASSWORD && !debugPassword) {
-      toast.error("Debug password is required to run cron jobs manually. Set NEXT_PUBLIC_DEBUG_PASSWORD or enter one.")
-      return
-    }
-    const currentPassword = debugPassword || process.env.NEXT_PUBLIC_DEBUG_PASSWORD
+  const testCronEndpoint = async () => {
+    setTesting(true)
+    setResult(null)
 
-    setLoading((prev) => ({ ...prev, [endpoint.id]: true }))
-    setResults((prev) => ({ ...prev, [endpoint.id]: null }))
     try {
-      const response = await fetch(endpoint.path, {
-        method: endpoint.method || "POST", // Default to POST
+      const response = await fetch("/api/cron/daily-dune-sync", {
+        method: "POST", // Using POST to manually test
         headers: {
           "Content-Type": "application/json",
-          "x-debug-password": currentPassword!,
         },
       })
+
       const data = await response.json()
-      setResults((prev) => ({ ...prev, [endpoint.id]: data }))
-      if (response.ok) {
-        toast.success(`${endpoint.name} finished successfully.`)
-      } else {
-        toast.error(`${endpoint.name} failed: ${data.message || response.statusText}`)
-      }
+      setResult({
+        status: response.status,
+        ok: response.ok,
+        data,
+        timestamp: new Date().toISOString(),
+      })
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error"
-      setResults((prev) => ({ ...prev, [endpoint.id]: { error: errorMessage } }))
-      toast.error(`Error running ${endpoint.name}: ${errorMessage}`)
+      setResult({
+        status: 0,
+        ok: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        timestamp: new Date().toISOString(),
+      })
     } finally {
-      setLoading((prev) => ({ ...prev, [endpoint.id]: false }))
+      setTesting(false)
     }
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-8 bg-background text-foreground min-h-screen">
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold">Debug Cron Jobs</CardTitle>
-          <CardDescription>
-            Manually trigger cron jobs for testing and initial data population. Ensure your CRON_SECRET (for deployed
-            environments) or DEBUG_PASSWORD (for local/dev) is correctly set in your environment variables. The
-            `x-debug-password` header will be used if you provide a password below.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <label htmlFor="debugPasswordInput" className="block text-sm font-medium mb-1">
-            Debug Password (optional, overrides NEXT_PUBLIC_DEBUG_PASSWORD if set):
-          </label>
-          <input
-            id="debugPasswordInput"
-            type="password"
-            value={debugPassword}
-            onChange={(e) => setDebugPassword(e.target.value)}
-            placeholder="Enter debug password if needed"
-            className="w-full p-2 border rounded-md bg-input text-foreground border-border mb-4"
-          />
-          <p className="text-xs text-muted-foreground">
-            Note: For scheduled Vercel cron jobs, the `Authorization: Bearer CRON_SECRET` header is used. For manual
-            triggering via this page, either `NEXT_PUBLIC_DEBUG_PASSWORD` must be set in your environment (and available
-            publicly for local development) or you can enter a password above. This password will be sent in the
-            `x-debug-password` header. The cron endpoints must be configured to accept this header for manual triggers.
-          </p>
-        </CardContent>
-      </Card>
+    <DebugAuth title="Debug Cron">
+      <div
+        className="min-h-screen text-white p-6"
+        style={{
+          background: 'url("/images/back_lines.svg") 0% 0% / cover no-repeat #062723',
+        }}
+      >
+        <div className="container mx-auto max-w-4xl">
+          <h1 className="text-3xl font-bold mb-8">Debug Cron Job</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {cronEndpoints.map((endpoint) => (
-          <Card key={endpoint.id} className="flex flex-col">
+          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl mb-6">
             <CardHeader>
-              <CardTitle>{endpoint.name}</CardTitle>
-              <CardDescription>{endpoint.description}</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-[#51d2c1]" />
+                Current Cron Schedule
+              </CardTitle>
             </CardHeader>
-            <CardContent className="flex-grow flex flex-col">
-              <Button onClick={() => handleRunCron(endpoint)} disabled={loading[endpoint.id]} className="w-full mb-4">
-                {loading[endpoint.id] ? "Running..." : `Run ${endpoint.method || "POST"}`}
-              </Button>
-              {results[endpoint.id] && (
-                <ScrollArea className="h-48 w-full rounded-md border p-3 bg-muted">
-                  <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(results[endpoint.id], null, 2)}</pre>
-                </ScrollArea>
-              )}
+            <CardContent>
+              <div className="space-y-2">
+                <p>
+                  <strong>Schedule:</strong> "0 22 * * *"
+                </p>
+                <p>
+                  <strong>UTC Time:</strong> 10:00 PM UTC daily
+                </p>
+                <p>
+                  <strong>EDT Time:</strong> 6:00 PM EDT (correct for now)
+                </p>
+                <p>
+                  <strong>EST Time:</strong> 5:00 PM EST (winter - will be 1 hour early)
+                </p>
+              </div>
             </CardContent>
           </Card>
-        ))}
+
+          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl mb-6">
+            <CardHeader>
+              <CardTitle>Manual Test</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-[#868d8f] mb-4">
+                Test the cron endpoint manually to see if it's working. This will bypass the CRON_SECRET check.
+              </p>
+              <Button
+                onClick={testCronEndpoint}
+                disabled={testing}
+                className="bg-[#51d2c1] text-black hover:bg-white hover:text-[#51d2c1]"
+              >
+                {testing ? (
+                  <>
+                    <Play className="mr-2 h-4 w-4 animate-spin" />
+                    Testing Cron...
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    Test Cron Endpoint
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {result && (
+            <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  Test Results
+                  <Badge className={result.ok ? "bg-[#20a67d] text-black" : "bg-[#ed7188] text-white"}>
+                    {result.ok ? "Success" : "Failed"}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <p>
+                      <strong>Status:</strong> {result.status}
+                    </p>
+                    <p>
+                      <strong>Time:</strong> {new Date(result.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+
+                  {result.error && (
+                    <div className="bg-[#ed7188]/10 border border-[#ed7188] rounded p-3">
+                      <p className="text-[#ed7188]">
+                        <strong>Error:</strong> {result.error}
+                      </p>
+                    </div>
+                  )}
+
+                  {result.data && (
+                    <details className="bg-[#2d5a4f] rounded p-3">
+                      <summary className="cursor-pointer text-[#51d2c1]">View Full Response</summary>
+                      <pre className="mt-2 text-xs overflow-auto text-white">
+                        {JSON.stringify(result.data, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="bg-[#0f1a1f] border-[#2d5a4f] rounded-2xl mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-yellow-500" />
+                Troubleshooting Steps
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ol className="list-decimal list-inside space-y-2 text-[#868d8f]">
+                <li>Check Vercel Dashboard → Functions → Cron Jobs for execution logs</li>
+                <li>Verify CRON_SECRET environment variable is set</li>
+                <li>Test the endpoint manually using the button above</li>
+                <li>Check if any recent deployments might have affected the cron</li>
+                <li>Verify the cron job is enabled in Vercel settings</li>
+              </ol>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </DebugAuth>
   )
 }
