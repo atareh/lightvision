@@ -75,7 +75,8 @@ export async function POST(request: NextRequest) {
       duneExecutionUpdateData.completed_at = now
       duneExecutionUpdateData.processed = false
       duneExecutionUpdateData.error_message = null
-      duneExecutionUpdateData.result_id = execution_id
+      // Remove this line:
+      // duneExecutionUpdateData.result_id = execution_id
 
       console.log(
         `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}) COMPLETED. Fetching results...`,
