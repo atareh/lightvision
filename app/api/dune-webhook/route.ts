@@ -34,29 +34,38 @@ export async function POST(request: NextRequest) {
   console.log(`[${webhookInvocationId}] Webhook authorized successfully via URL secret.`)
 
   let payload: any
+  let queryResultPayload: any // To store the nested query_result object
+
   try {
     payload = await request.json()
-    // Log the entire raw payload to see its structure
     console.log(`[${webhookInvocationId}] Full raw payload received:`, JSON.stringify(payload, null, 2))
 
-    // The following log will help confirm if fields are indeed missing from the raw payload
+    // Extract the nested query_result object
+    queryResultPayload = payload.query_result || {} // Use empty object as fallback
+
     console.log(
-      `[${webhookInvocationId}] Attempting to parse from payload - Execution ID: ${payload.execution_id}, Query ID: ${payload.query_id}, State: ${payload.state}, Query Name: ${payload.query_name || "N/A"}`,
+      `[${webhookInvocationId}] Attempting to parse from payload.query_result - Execution ID: ${queryResultPayload.execution_id}, Query ID: ${queryResultPayload.query_id}, State: ${queryResultPayload.state}`,
     )
+    // Query name might not be in query_result, check root payload or handle if consistently missing
+    console.log(`[${webhookInvocationId}] Query Name from root payload: ${payload.query_name || "N/A"}`)
   } catch (error) {
     console.error(`[${webhookInvocationId}] Failed to parse webhook JSON payload:`, error)
-    // It's possible Dune's test trigger sends an empty body or non-JSON, which would cause request.json() to fail.
-    // If so, the error here will indicate that.
     return NextResponse.json({ error: "Invalid JSON payload or empty body" }, { status: 400 })
   }
 
-  const { execution_id, query_id, state, result_id, error_message, query_name } = payload
+  // Destructure from the queryResultPayload (and root payload for others if applicable)
+  const { execution_id, query_id, state } = queryResultPayload
+  // result_id is often the same as execution_id for fetching results.
+  // error_message might be at root or nested depending on Dune's error reporting for alerts.
+  // Let's assume error_message might be at the root for now if query_result itself indicates failure.
+  const error_message = payload.error_message || queryResultPayload.error_message // Check both
+  const query_name = payload.query_name // This was undefined in your example, might always be for this webhook type
 
   if (!execution_id || !query_id || !state) {
     console.error(
-      `[${webhookInvocationId}] Missing required fields after attempting to destructure. Execution ID: ${execution_id}, Query ID: ${query_id}, State: ${state}. Check raw payload log above.`,
+      `[${webhookInvocationId}] Missing required fields after attempting to destructure from payload.query_result. Execution ID: ${execution_id}, Query ID: ${query_id}, State: ${state}. Check raw payload log above.`,
     )
-    return NextResponse.json({ error: "Missing required fields in payload" }, { status: 400 })
+    return NextResponse.json({ error: "Missing required fields in payload.query_result" }, { status: 400 })
   }
 
   if (!duneApiKey) {
@@ -69,14 +78,15 @@ export async function POST(request: NextRequest) {
     const updateData: any = {
       status: state,
       updated_at: now,
-      query_name: query_name || null,
+      query_name: query_name || null, // Will be null if not provided by Dune
     }
 
     if (state === "QUERY_STATE_COMPLETED") {
       updateData.completed_at = now
       updateData.processed = false
-      updateData.error_message = null
-      updateData.result_id = result_id
+      updateData.error_message = null // Clear previous error if any
+      // result_id for fetching results is the execution_id
+      updateData.result_id = execution_id
 
       console.log(
         `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}, Name: ${query_name || "N/A"}) COMPLETED. Fetching results...`,
@@ -96,6 +106,7 @@ export async function POST(request: NextRequest) {
         updateData.processed = true
       } else {
         const resultsData = await resultsResponse.json()
+        // The actual rows are at resultsData.result.rows, as seen in previous Dune API interactions
         const rows = resultsData.result?.rows || []
         updateData.row_count = rows.length
         console.log(
@@ -116,7 +127,8 @@ export async function POST(request: NextRequest) {
     } else if (state === "QUERY_STATE_FAILED" || state === "QUERY_STATE_CANCELLED") {
       updateData.completed_at = now
       updateData.processed = true
-      updateData.error_message = error_message || `Query ${state.replace("QUERY_STATE_", "")} on Dune.`
+      updateData.error_message =
+        error_message || queryResultPayload.error?.message || `Query ${state.replace("QUERY_STATE_", "")} on Dune.` // Try to get a more specific error from query_result if available
       console.log(
         `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}, Name: ${query_name || "N/A"}) ${state}. Error: ${updateData.error_message}`,
       )
