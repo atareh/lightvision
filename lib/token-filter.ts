@@ -1,202 +1,234 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import { createClient } from "@supabase/supabase-js"
 
-// Initialize Supabase client
-// Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in your environment
-let supabase: SupabaseClient
-try {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  if (!supabaseUrl || !supabaseServiceKey) {
-    console.error("🔴 CRITICAL: Supabase URL or Service Key is missing in lib/token-filter.ts environment variables.")
-    // Depending on your error handling strategy, you might throw an error here
-    // or allow supabase to be undefined, and functions will fail gracefully.
-    // For now, we'll let it be potentially undefined and check in functions.
-  } else {
-    supabase = createClient(supabaseUrl, supabaseServiceKey)
-    console.log("🔵 Supabase client initialized in lib/token-filter.ts")
-  }
-} catch (error: any) {
-  console.error("🔴 CRITICAL: Error initializing Supabase client in lib/token-filter.ts:", error.message, error.stack)
-  // throw error; // Optionally re-throw to prevent application startup if Supabase is critical
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error("Supabase URL or Service Key is not defined for token-filter.")
 }
 
-// Default thresholds
-const DEFAULT_LIQUIDITY_THRESHOLD = 10000 // $10K
-const DEFAULT_VOLUME_THRESHOLD = 1000 // $1K
+const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 export interface FilterThresholds {
   liquidity: number
   volume: number
 }
 
-/**
- * Get the current liquidity and volume thresholds from the database
- */
-export async function getFilterThresholds(): Promise<FilterThresholds> {
-  if (!supabase) {
-    console.error("Supabase client not initialized in getFilterThresholds. Returning default thresholds.")
-    return { liquidity: DEFAULT_LIQUIDITY_THRESHOLD, volume: DEFAULT_VOLUME_THRESHOLD }
-  }
-  try {
-    const { data, error } = await supabase
-      .from("liquidity_thresholds") // Assuming volume_threshold_usd is in this table
-      .select("threshold_usd, volume_threshold_usd")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single()
+export async function getActiveTokens(): Promise<
+  { contract_address: string; symbol: string | null; name: string | null }[]
+> {
+  const executionId = `getActiveTokens_${Date.now()}`
+  console.log(`[${executionId}] Fetching active (enabled and not hidden) tokens...`)
+  const { data, error } = await supabase
+    .from("tokens")
+    .select("contract_address, symbol, name")
+    .eq("enabled", true)
+    .eq("is_hidden", false)
 
-    if (error) {
-      console.error("Error fetching filter thresholds, using defaults:", error)
-      return { liquidity: DEFAULT_LIQUIDITY_THRESHOLD, volume: DEFAULT_VOLUME_THRESHOLD }
-    }
-
-    return {
-      liquidity: data?.threshold_usd || DEFAULT_LIQUIDITY_THRESHOLD,
-      volume: data?.volume_threshold_usd || DEFAULT_VOLUME_THRESHOLD,
-    }
-  } catch (error) {
-    console.error("Failed to get filter thresholds, using defaults:", error)
-    return { liquidity: DEFAULT_LIQUIDITY_THRESHOLD, volume: DEFAULT_VOLUME_THRESHOLD }
+  if (error) {
+    console.error(`[${executionId}] Error fetching active tokens: ${error.message}`)
+    // Depending on how critical this is, you might want to throw the error
+    // or return an empty array to prevent the cron from failing entirely.
+    // For now, returning empty to allow other parts of a cron to potentially proceed.
+    return []
   }
+
+  if (!data) {
+    console.log(`[${executionId}] No active tokens found.`)
+    return []
+  }
+
+  console.log(`[${executionId}] Found ${data.length} active tokens.`)
+  return data.map((token) => ({
+    contract_address: token.contract_address.toLowerCase(), // Ensure lowercase
+    symbol: token.symbol,
+    name: token.name,
+  }))
 }
 
-/**
- * Check and update a token's liquidity status
- */
+export async function getFilterThresholds(): Promise<FilterThresholds> {
+  const { data, error } = await supabase.from("liquidity_thresholds").select("*").single()
+
+  if (error || !data) {
+    console.warn("Failed to fetch filter thresholds, using defaults:", error?.message)
+    // Default values if not found or error occurs
+    return { liquidity: 10000, volume: 1000 }
+  }
+  return { liquidity: data.min_liquidity_usd, volume: data.min_volume_usd }
+}
+
 export async function checkAndUpdateLiquidityStatus(
   contractAddress: string,
-  liquidityUsd: number | null | undefined,
-  thresholds: FilterThresholds, // Added thresholds parameter
-  executionId?: string,
-): Promise<boolean> {
-  if (!supabase) {
-    console.error(`Supabase client not initialized in checkAndUpdateLiquidityStatus for ${contractAddress}.`)
-    return false
-  }
+  liquidityThreshold: number,
+): Promise<void> {
+  const executionId = `liquidity_check_${contractAddress}_${Date.now()}`
   try {
-    // const thresholds = await getFilterThresholds() // Removed internal call
-    const actualLiquidity = liquidityUsd ?? 0
-    const hasLowLiquidity = actualLiquidity < thresholds.liquidity
+    // console.log(`[${executionId}] Checking liquidity status for ${contractAddress}...`)
+    const { data: latestMetrics, error: metricsError } = await supabase
+      .from("token_metrics")
+      .select("liquidity_usd")
+      .eq("contract_address", contractAddress)
+      .order("recorded_at", { ascending: false })
+      .limit(1)
+      .single() // Use single to ensure we get one record or null
 
-    const { data: currentToken, error: fetchError } = await supabase
+    const now = new Date().toISOString()
+
+    if (metricsError && metricsError.code !== "PGRST116") {
+      // PGRST116: No rows found
+      console.error(`[${executionId}] Error fetching latest metrics for ${contractAddress}: ${metricsError.message}`)
+      // Still attempt to update updated_at to signify a check was made
+      await supabase.from("tokens").update({ updated_at: now }).eq("contract_address", contractAddress)
+      return
+    }
+
+    const currentLiquidity = latestMetrics?.liquidity_usd ?? 0 // Default to 0 if no metrics
+    const newLowLiquidityStatus = currentLiquidity < liquidityThreshold
+
+    const { data: currentToken, error: fetchTokenError } = await supabase
       .from("tokens")
       .select("low_liquidity")
       .eq("contract_address", contractAddress)
-      .single()
+      .maybeSingle()
 
-    if (fetchError && !fetchError.message.includes("No rows found")) {
-      console.error(`Error fetching token status for ${contractAddress} (liquidity):`, fetchError)
-      return false
+    if (fetchTokenError) {
+      console.error(
+        `[${executionId}] Error fetching token ${contractAddress} for liquidity check: ${fetchTokenError.message}`,
+      )
+      // Attempt to update updated_at even if fetching current status fails, as a check was initiated
+      await supabase.from("tokens").update({ updated_at: now }).eq("contract_address", contractAddress)
+      return
     }
 
-    if (currentToken?.low_liquidity !== hasLowLiquidity) {
+    const updatePayload: { low_liquidity?: boolean; updated_at: string } = { updated_at: now }
+    let needsUpdate = true
+
+    if (currentToken) {
+      if (currentToken.low_liquidity !== newLowLiquidityStatus) {
+        updatePayload.low_liquidity = newLowLiquidityStatus
+        // console.log(`[${executionId}] Liquidity status changing for ${contractAddress} to ${newLowLiquidityStatus}. Current liquidity: $${currentLiquidity.toLocaleString()}`);
+      } else {
+        // Status is the same, only updated_at needs to be set.
+        // console.log(`[${executionId}] Liquidity status for ${contractAddress} remains ${newLowLiquidityStatus}. Refreshing updated_at. Current liquidity: $${currentLiquidity.toLocaleString()}`);
+      }
+    } else {
+      // Token not found in 'tokens' table, which is unexpected if this function is called.
+      // This might happen if KV store is out of sync with 'tokens' table.
+      // For now, we won't insert a new token here, just log.
+      console.warn(
+        `[${executionId}] Token ${contractAddress} not found in 'tokens' table during liquidity check. Cannot update status.`,
+      )
+      needsUpdate = false // Don't attempt update if token doesn't exist
+    }
+
+    if (needsUpdate) {
       const { error: updateError } = await supabase
         .from("tokens")
-        .update({ low_liquidity: hasLowLiquidity })
+        .update(updatePayload)
         .eq("contract_address", contractAddress)
 
       if (updateError) {
-        console.error(`Error updating liquidity status for ${contractAddress}:`, updateError)
-        return false
+        console.error(`[${executionId}] Error updating liquidity status for ${contractAddress}: ${updateError.message}`)
       }
-
-      if (executionId) {
-        console.log(
-          `💧 [${executionId}] Updated liquidity status for ${contractAddress}: ${
-            hasLowLiquidity ? "LOW" : "SUFFICIENT"
-          } liquidity ($${actualLiquidity.toLocaleString()}) vs threshold $${thresholds.liquidity.toLocaleString()}`,
-        )
-      }
-      return true // Status was changed
     }
-    return false // No change needed
   } catch (error) {
-    console.error(`Failed to check/update liquidity status for ${contractAddress}:`, error)
-    return false
+    console.error(
+      `[${executionId}] Unexpected error in checkAndUpdateLiquidityStatus for ${contractAddress}:`,
+      error instanceof Error ? error.message : error,
+    )
+    // Attempt to update updated_at as a last resort if an unexpected error occurs mid-process
+    try {
+      await supabase
+        .from("tokens")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("contract_address", contractAddress)
+    } catch (finalUpdateError) {
+      console.error(`[${executionId}] Failed to make final updated_at touch for ${contractAddress}:`, finalUpdateError)
+    }
   }
 }
 
-/**
- * Check and update a token's 24h volume status
- */
-export async function checkAndUpdateVolumeStatus(
-  contractAddress: string,
-  volume24hUsd: number | null | undefined,
-  thresholds: FilterThresholds, // Added thresholds parameter
-  executionId?: string,
-): Promise<boolean> {
-  if (!supabase) {
-    console.error(`Supabase client not initialized in checkAndUpdateVolumeStatus for ${contractAddress}.`)
-    return false
-  }
+export async function checkAndUpdateVolumeStatus(contractAddress: string, volumeThreshold: number): Promise<void> {
+  const executionId = `volume_check_${contractAddress}_${Date.now()}`
   try {
-    // const thresholds = await getFilterThresholds() // Removed internal call
-    const actualVolume = volume24hUsd ?? 0
-    const hasLowVolume = actualVolume < thresholds.volume
+    // console.log(`[${executionId}] Checking volume status for ${contractAddress}...`)
+    const { data: latestMetrics, error: metricsError } = await supabase
+      .from("token_metrics")
+      .select("volume_24h")
+      .eq("contract_address", contractAddress)
+      .order("recorded_at", { ascending: false })
+      .limit(1)
+      .single()
 
-    const { data: currentToken, error: fetchError } = await supabase
+    const now = new Date().toISOString()
+
+    if (metricsError && metricsError.code !== "PGRST116") {
+      console.error(
+        `[${executionId}] Error fetching latest metrics for ${contractAddress} (volume): ${metricsError.message}`,
+      )
+      await supabase.from("tokens").update({ updated_at: now }).eq("contract_address", contractAddress)
+      return
+    }
+
+    const currentVolume = latestMetrics?.volume_24h ?? 0
+    const newLowVolumeStatus = currentVolume < volumeThreshold
+
+    const { data: currentToken, error: fetchTokenError } = await supabase
       .from("tokens")
       .select("low_volume")
       .eq("contract_address", contractAddress)
-      .single()
+      .maybeSingle()
 
-    if (fetchError && !fetchError.message.includes("No rows found")) {
-      console.error(`Error fetching token status for ${contractAddress} (volume):`, fetchError)
-      return false
+    if (fetchTokenError) {
+      console.error(
+        `[${executionId}] Error fetching token ${contractAddress} for volume check: ${fetchTokenError.message}`,
+      )
+      await supabase.from("tokens").update({ updated_at: now }).eq("contract_address", contractAddress)
+      return
     }
 
-    if (currentToken?.low_volume !== hasLowVolume) {
+    const updatePayload: { low_volume?: boolean; updated_at: string } = { updated_at: now }
+    let needsUpdate = true
+
+    if (currentToken) {
+      if (currentToken.low_volume !== newLowVolumeStatus) {
+        updatePayload.low_volume = newLowVolumeStatus
+        // console.log(`[${executionId}] Volume status changing for ${contractAddress} to ${newLowVolumeStatus}. Current volume: $${currentVolume.toLocaleString()}`);
+      } else {
+        // console.log(`[${executionId}] Volume status for ${contractAddress} remains ${newLowVolumeStatus}. Refreshing updated_at. Current volume: $${currentVolume.toLocaleString()}`);
+      }
+    } else {
+      console.warn(
+        `[${executionId}] Token ${contractAddress} not found in 'tokens' table during volume check. Cannot update status.`,
+      )
+      needsUpdate = false
+    }
+
+    if (needsUpdate) {
       const { error: updateError } = await supabase
         .from("tokens")
-        .update({ low_volume: hasLowVolume })
+        .update(updatePayload)
         .eq("contract_address", contractAddress)
 
       if (updateError) {
-        console.error(`Error updating volume status for ${contractAddress}:`, updateError)
-        return false
+        console.error(`[${executionId}] Error updating volume status for ${contractAddress}: ${updateError.message}`)
       }
-
-      if (executionId) {
-        console.log(
-          `📊 [${executionId}] Updated volume status for ${contractAddress}: ${
-            hasLowVolume ? "LOW" : "SUFFICIENT"
-          } volume ($${actualVolume.toLocaleString()}) vs threshold $${thresholds.volume.toLocaleString()}`,
-        )
-      }
-      return true // Status was changed
     }
-    return false // No change needed
   } catch (error) {
-    console.error(`Failed to check/update volume status for ${contractAddress}:`, error)
-    return false
-  }
-}
-
-/**
- * Get all active tokens that have sufficient liquidity and volume
- */
-export async function getActiveTokens(): Promise<string[]> {
-  if (!supabase) {
-    console.error("Supabase client not initialized in getActiveTokens.")
-    return []
-  }
-  try {
-    const { data, error } = await supabase
-      .from("tokens")
-      .select("contract_address")
-      .eq("enabled", true)
-      .eq("low_liquidity", false)
-      .eq("low_volume", false) // Added volume filter
-
-    if (error) {
-      console.error("Error fetching active tokens (liquidity & volume):", error)
-      return []
+    console.error(
+      `[${executionId}] Unexpected error in checkAndUpdateVolumeStatus for ${contractAddress}:`,
+      error instanceof Error ? error.message : error,
+    )
+    try {
+      await supabase
+        .from("tokens")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("contract_address", contractAddress)
+    } catch (finalUpdateError) {
+      console.error(
+        `[${executionId}] Failed to make final updated_at touch for ${contractAddress} (volume):`,
+        finalUpdateError,
+      )
     }
-
-    return data.map((token) => token.contract_address)
-  } catch (error) {
-    console.error("Failed to get active tokens (liquidity & volume):", error)
-    return []
   }
 }

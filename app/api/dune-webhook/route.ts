@@ -1,11 +1,77 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import type { DuneExecutionResultRow } from "@/lib/types" // Assuming you have or will create this type
+import { createHmac } from "crypto" // Import createHmac from crypto
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const duneWebhookSecret = process.env.DUNE_WEBHOOK_SECRET
 
-const DUNE_QUERY_ID = 5184581 // The specific query ID we're handling
-const DUNE_API_KEY = process.env.DUNE_API_KEY
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("🔴 CRITICAL: Supabase URL or Service Key is missing for Dune webhook.")
+  // Consider throwing an error or handling this more gracefully if needed at startup
+}
+const supabase = createClient(supabaseUrl!, supabaseServiceKey!)
+
+// Implement verifyWebhookSignature directly
+async function verifyWebhookSignature(
+  body: string, // raw request body
+  signature: string, // value of 'x-dune-signature' header
+  secret: string, // your webhook secret
+): Promise<boolean> {
+  const hash = createHmac("sha256", secret).update(body).digest("hex")
+  return hash === signature
+}
+
+interface DuneExecutionResult {
+  execution_id: string
+  query_id: number
+  state: string // e.g., "QUERY_STATE_COMPLETED", "QUERY_STATE_FAILED"
+  is_execution_finished: boolean
+  submitted_at: string
+  expires_at?: string
+  execution_started_at?: string
+  execution_ended_at?: string
+  result?: {
+    rows: any[]
+    metadata: {
+      column_names: string[]
+      column_types: string[]
+      row_count: number
+      // ... other metadata
+    }
+  }
+  error?: {
+    type: string
+    message: string
+  }
+}
+
+// Mapping Query IDs to table names and their primary key for conflict resolution
+const QUERY_TABLE_MAP: Record<number, { tableName: string; conflictKey: string; transform?: (row: any) => any }> = {
+  5184581: { tableName: "hyperliquid_stats_by_day", conflictKey: "day" }, // Main Hyperliquid Stats (TVL, Wallets)
+  5184595: { tableName: "hyperevm_stats_by_day", conflictKey: "day" }, // HyperEVM Stats (TVL, Transactions)
+  // Add other query IDs and their corresponding tables/keys here
+  // Example for revenue if it were from a different query ID:
+  // 5XXXXXX: { tableName: "daily_revenue", conflictKey: "day", transform: transformRevenueData },
+}
+
+async function updateDuneExecutionStatus(executionId: string, status: string, results?: any, errorMsg?: string) {
+  if (!supabase) return
+  try {
+    await supabase
+      .from("dune_executions")
+      .update({
+        status: status,
+        results: results || null,
+        error_message: errorMsg || null,
+        updated_at: new Date().toISOString(), // Ensure updated_at is set
+        completed_at: new Date().toISOString(), // Mark completion time
+      })
+      .eq("execution_id", executionId)
+  } catch (dbError) {
+    console.error(`[DuneWebhook] Failed to update Dune execution status in DB for ${executionId}:`, dbError)
+  }
+}
 
 // Helper function to get UTC date string
 function getUTCDateString(dateInput: string | Date): string | null {
@@ -24,8 +90,8 @@ function getUTCDateString(dateInput: string | Date): string | null {
   }
 }
 
-async function processAndStoreDuneWebhookResults(rows: DuneExecutionResultRow[], webhookInvocationId: string) {
-  const logPrefix = `[Webhook ${webhookInvocationId}] Query ${DUNE_QUERY_ID}:`
+async function processAndStoreDuneWebhookResults(rows: any[], webhookInvocationId: string) {
+  const logPrefix = `[Webhook ${webhookInvocationId}] Query ${5184581}:`
   let successCount = 0
   let errorCount = 0
   const processingErrors: string[] = []
@@ -44,7 +110,7 @@ async function processAndStoreDuneWebhookResults(rows: DuneExecutionResultRow[],
 
       const recordData = {
         // execution_id: webhookInvocationId, // Or a specific execution_id if Dune provides it
-        query_id: DUNE_QUERY_ID,
+        query_id: 5184581,
         block_day: blockDay,
         address_count: row.address_count ? Number.parseInt(String(row.address_count)) : null,
         deposit: row.deposit ? Number.parseFloat(String(row.deposit)) : null,
@@ -78,12 +144,17 @@ async function processAndStoreDuneWebhookResults(rows: DuneExecutionResultRow[],
   return { successCount, errorCount, processingErrors }
 }
 
-async function logWebhookEvent(status: string, payload?: any, error?: string, durationMs?: number) {
+async function logWebhookEvent(
+  status: string,
+  payload?: DuneExecutionResult | any,
+  error?: string,
+  durationMs?: number,
+) {
   try {
     await supabase.from("webhook_logs").insert({
       // Assuming a 'webhook_logs' table
       source: "dune",
-      query_id: DUNE_QUERY_ID,
+      query_id: payload?.query_id || null, // Use dynamic query_id from payload
       status: status,
       payload: payload || null,
       error_message: error || null,
@@ -96,117 +167,180 @@ async function logWebhookEvent(status: string, payload?: any, error?: string, du
 }
 
 export async function POST(request: NextRequest) {
-  const webhookInvocationId = `dune_webhook_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-  const startTime = Date.now()
+  if (!supabase) {
+    console.error("[DuneWebhook] Supabase client not initialized. Cannot process webhook.")
+    return NextResponse.json({ error: "Internal Server Error: DB client not ready" }, { status: 500 })
+  }
+  if (!duneWebhookSecret) {
+    console.error("[DuneWebhook] DUNE_WEBHOOK_SECRET is not set. Cannot verify signature.")
+    return NextResponse.json({ error: "Configuration error: Webhook secret missing" }, { status: 500 })
+  }
 
-  // Optional: Basic security check (e.g., a shared secret in the header or query param)
-  // const sharedSecret = request.headers.get("X-Dune-Webhook-Secret");
-  // if (sharedSecret !== process.env.DUNE_WEBHOOK_SECRET) {
-  //   await logWebhookEvent("REJECTED_UNAUTHORIZED", { reason: "Invalid secret" });
-  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // }
-
-  let dunePayload = {}
-  try {
-    dunePayload = await request.json()
-    console.log(
-      `[${webhookInvocationId}] Received Dune webhook. Payload:`,
-      JSON.stringify(dunePayload).substring(0, 500),
-    )
-    // You might parse query_id or execution_id from dunePayload if available and needed
-    // For now, we assume it's a signal for DUNE_QUERY_ID
-  } catch (e) {
-    console.error(`[${webhookInvocationId}] Error parsing webhook payload:`, e)
+  const signature = request.headers.get("x-dune-signature")
+  if (!signature) {
+    console.warn("[DuneWebhook] Missing x-dune-signature header.")
     await logWebhookEvent(
-      "FAILED_PAYLOAD_PARSE",
-      { error: (e as Error).message },
-      (e as Error).message,
-      Date.now() - startTime,
+      "ERROR",
+      { headers: Object.fromEntries(request.headers.entries()) },
+      "Missing x-dune-signature header",
     )
+    return NextResponse.json({ error: "Missing signature" }, { status: 400 })
+  }
+
+  let rawBody: string
+  try {
+    rawBody = await request.text()
+  } catch (e) {
+    console.error("[DuneWebhook] Failed to read request body:", e)
+    await logWebhookEvent(
+      "ERROR",
+      { headers: Object.fromEntries(request.headers.entries()) },
+      "Failed to read request body",
+    )
+    return NextResponse.json({ error: "Failed to read request body" }, { status: 400 })
+  }
+
+  const isVerified = await verifyWebhookSignature(rawBody, signature, duneWebhookSecret)
+  if (!isVerified) {
+    console.warn("[DuneWebhook] Invalid Dune webhook signature.")
+    await logWebhookEvent(
+      "ERROR",
+      { body: rawBody, headers: Object.fromEntries(request.headers.entries()) },
+      "Invalid Dune webhook signature",
+    )
+    return NextResponse.json({ error: "Invalid signature" }, { status: 403 })
+  }
+
+  let payload: DuneExecutionResult
+  try {
+    payload = JSON.parse(rawBody) as DuneExecutionResult
+  } catch (e) {
+    console.error("[DuneWebhook] Failed to parse webhook JSON payload:", e)
+    await logWebhookEvent("ERROR", { body: rawBody }, "Invalid JSON payload")
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 })
   }
 
-  if (!DUNE_API_KEY) {
-    console.error(`[${webhookInvocationId}] DUNE_API_KEY not configured.`)
+  const startTime = Date.now()
+  console.log(
+    `[DuneWebhook] Received VERIFIED webhook for execution ID: ${payload.execution_id}, Query ID: ${payload.query_id}, State: ${payload.state}`,
+  )
+  await logWebhookEvent("RECEIVED", payload)
+
+  const queryConfig = QUERY_TABLE_MAP[payload.query_id]
+
+  if (!queryConfig) {
+    console.warn(
+      `[DuneWebhook] No table mapping found for Query ID: ${payload.query_id}. Execution ID: ${payload.execution_id}.`,
+    )
+    await updateDuneExecutionStatus(
+      payload.execution_id,
+      "UNMAPPED_QUERY_ID",
+      payload.result,
+      `No table mapping for query_id ${payload.query_id}`,
+    )
     await logWebhookEvent(
-      "FAILED_CONFIG_MISSING",
-      { error: "DUNE_API_KEY missing" },
-      "DUNE_API_KEY not configured",
+      "WARNING",
+      payload,
+      `No table mapping for Query ID: ${payload.query_id}`,
       Date.now() - startTime,
     )
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-  }
-
-  try {
-    console.log(`[${webhookInvocationId}] Fetching latest results for Dune query ${DUNE_QUERY_ID}...`)
-    const duneResultsUrl = `https://api.dune.com/api/v1/query/${DUNE_QUERY_ID}/results?limit=1000` // As per prompt
-
-    const response = await fetch(duneResultsUrl, {
-      headers: {
-        "X-Dune-Api-Key": DUNE_API_KEY,
-      },
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[${webhookInvocationId}] Error fetching Dune results: ${response.status} - ${errorText}`)
-      await logWebhookEvent(
-        "FAILED_DUNE_FETCH",
-        { status: response.status, error: errorText },
-        `Dune API Error: ${response.status}`,
-        Date.now() - startTime,
-      )
-      return NextResponse.json(
-        { error: `Failed to fetch Dune results: ${response.status}` },
-        { status: response.status },
-      )
-    }
-
-    const data = await response.json()
-
-    if (!data.result || !Array.isArray(data.result.rows)) {
-      console.error(`[${webhookInvocationId}] Invalid data structure from Dune results API:`, data)
-      await logWebhookEvent(
-        "FAILED_DUNE_DATA_INVALID",
-        { response: JSON.stringify(data).substring(0, 500) },
-        "Invalid data structure from Dune",
-        Date.now() - startTime,
-      )
-      return NextResponse.json({ error: "Invalid data structure from Dune" }, { status: 500 })
-    }
-
-    const rows: DuneExecutionResultRow[] = data.result.rows
-    console.log(`[${webhookInvocationId}] Fetched ${rows.length} rows from Dune. Processing...`)
-
-    const { successCount, errorCount, processingErrors } = await processAndStoreDuneWebhookResults(
-      rows,
-      webhookInvocationId,
+    // Still return 200 as the webhook was valid, but we can't process it further.
+    return NextResponse.json(
+      { message: "Webhook received, but no processing rule for this query ID." },
+      { status: 200 },
     )
-
-    const durationMs = Date.now() - startTime
-    if (errorCount > 0) {
-      await logWebhookEvent(
-        "COMPLETED_WITH_ERRORS",
-        { successCount, errorCount, errors: processingErrors },
-        `${errorCount} rows failed to process.`,
-        durationMs,
-      )
-      // Still return 200 to Dune if some data was processed, or decide based on severity
-      return NextResponse.json(
-        { message: "Webhook processed with some errors.", successCount, errorCount, errors: processingErrors },
-        { status: 200 },
-      )
-    }
-
-    await logWebhookEvent("COMPLETED_SUCCESS", { successCount, rowCount: rows.length }, null, durationMs)
-    console.log(`[${webhookInvocationId}] Webhook processed successfully. ${successCount} rows stored.`)
-    return NextResponse.json({ message: "Webhook processed successfully", successCount }, { status: 200 })
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : "Unknown error"
-    console.error(`[${webhookInvocationId}] Unexpected error processing webhook:`, error)
-    await logWebhookEvent("FAILED_UNEXPECTED", { error: errMsg }, errMsg, Date.now() - startTime)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
+
+  if (payload.state === "QUERY_STATE_COMPLETED" && payload.result) {
+    const { tableName, conflictKey, transform } = queryConfig
+    const rows = payload.result.rows
+    const now = new Date().toISOString()
+
+    if (rows && rows.length > 0) {
+      console.log(`[DuneWebhook] Processing ${rows.length} rows for table ${tableName} (Query ID: ${payload.query_id})`)
+
+      const recordsToUpsert = rows.map((row) => {
+        const transformedRow = transform ? transform(row) : row
+        // Ensure all common fields are present or defaulted
+        const baseRecord = {
+          ...transformedRow,
+          query_id: payload.query_id,
+          execution_id: payload.execution_id,
+          updated_at: now,
+        }
+        // Add created_at only if it's not an update (Supabase handles this with DEFAULT if not provided)
+        // For upsert, if the conflict target exists, it's an update. If not, it's an insert.
+        // Supabase's .upsert handles created_at correctly if the column has a DEFAULT value.
+        return baseRecord
+      })
+
+      const { error: upsertError, data: upsertData } = await supabase
+        .from(tableName)
+        .upsert(recordsToUpsert, {
+          onConflict: conflictKey,
+          ignoreDuplicates: false,
+        })
+        .select() // Added select() to get feedback on what was upserted
+
+      if (upsertError) {
+        console.error(
+          `[DuneWebhook] Error upserting data to ${tableName} for execution ${payload.execution_id}:`,
+          upsertError,
+        )
+        await updateDuneExecutionStatus(payload.execution_id, "DB_UPSERT_FAILED", payload.result, upsertError.message)
+        await logWebhookEvent("ERROR", payload, `DB Upsert Failed: ${upsertError.message}`, Date.now() - startTime)
+        return NextResponse.json({ error: `Failed to upsert data: ${upsertError.message}` }, { status: 500 })
+      } else {
+        console.log(
+          `[DuneWebhook] Successfully upserted ${upsertData?.length || 0} rows to ${tableName} for execution ${payload.execution_id}.`,
+        )
+        await updateDuneExecutionStatus(payload.execution_id, "COMPLETED_AND_STORED", payload.result)
+        await logWebhookEvent("SUCCESS", payload, `Stored ${upsertData?.length || 0} rows.`, Date.now() - startTime)
+      }
+    } else {
+      console.log(
+        `[DuneWebhook] No rows to process for execution ${payload.execution_id}. Query ID: ${payload.query_id}`,
+      )
+      await updateDuneExecutionStatus(payload.execution_id, "COMPLETED_NO_DATA", payload.result)
+      await logWebhookEvent("SUCCESS_NO_DATA", payload, "No rows to process.", Date.now() - startTime)
+    }
+  } else if (payload.state === "QUERY_STATE_FAILED" || payload.error) {
+    console.error(
+      `[DuneWebhook] Dune query execution ${payload.execution_id} (Query ID: ${payload.query_id}) failed. Error: ${payload.error?.message || "Unknown error"}`,
+    )
+    await updateDuneExecutionStatus(payload.execution_id, "DUNE_EXECUTION_FAILED", undefined, payload.error?.message)
+    await logWebhookEvent(
+      "DUNE_FAILURE",
+      payload,
+      `Dune Execution Failed: ${payload.error?.message || "Unknown"}`,
+      Date.now() - startTime,
+    )
+  } else if (payload.is_execution_finished) {
+    console.log(
+      `[DuneWebhook] Dune query execution ${payload.execution_id} (Query ID: ${payload.query_id}) finished with state: ${payload.state}.`,
+    )
+    await updateDuneExecutionStatus(payload.execution_id, payload.state, payload.result)
+    await logWebhookEvent(
+      "DUNE_FINISHED_OTHER_STATE",
+      payload,
+      `Finished with state: ${payload.state}`,
+      Date.now() - startTime,
+    )
+  } else {
+    console.log(
+      `[DuneWebhook] Dune query execution ${payload.execution_id} (Query ID: ${payload.query_id}) is in state: ${payload.state}. No data storage action taken.`,
+    )
+    // Optionally update status to reflect ongoing Dune execution if not already PENDING
+    // await updateDuneExecutionStatus(payload.execution_id, payload.state);
+    await logWebhookEvent(
+      "DUNE_IN_PROGRESS",
+      payload,
+      `State: ${payload.state}. No data storage action.`,
+      Date.now() - startTime,
+    )
+  }
+
+  return NextResponse.json({ message: "Webhook received and processed" }, { status: 200 })
 }
 
 // Define a simple type for Dune rows (adjust as needed based on your actual query 5184581 structure)

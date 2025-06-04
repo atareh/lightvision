@@ -84,14 +84,14 @@ function extractHexAddress(tokenIdFromGecko: string): string {
   }
   const parts = tokenIdFromGecko.split("_")
   const potentialAddress = parts[parts.length - 1]
-  if (potentialAddress && potentialAddress.startsWith("0x")) {
+  if (potentialAddress && potentialAddress.startsWith("0x") && potentialAddress.length === 42) {
     return potentialAddress.toLowerCase()
   }
-  console.warn(`Unexpected token ID format from GeckoTerminal: ${tokenIdFromGecko}`)
+  console.warn(`Unexpected token ID format from GeckoTerminal: ${tokenIdFromGecko}. Defaulting to full ID.`)
   if (tokenIdFromGecko.startsWith("0x") && tokenIdFromGecko.length === 42) {
     return tokenIdFromGecko.toLowerCase()
   }
-  return tokenIdFromGecko.toLowerCase()
+  return tokenIdFromGecko.toLowerCase() // Fallback, though might not be a valid address
 }
 
 function findIncludedToken(baseTokenId: string, included: GeckoResponse["included"]): GeckoToken | null {
@@ -101,31 +101,6 @@ function findIncludedToken(baseTokenId: string, included: GeckoResponse["include
 
 function generateFallbackImageUrl(address: string): string {
   return `https://dd.dexscreener.com/ds-data/tokens/hyperevm/${address.toLowerCase()}.png`
-}
-
-// mergeSocials and mergeWebsites are not strictly needed if we only insert new tokens
-// and don't update existing ones' socials/websites from this cron.
-// However, they are used when creating a *new* token, so they should remain.
-function mergeSocials(existingSocials: any[] = [], newSocials: any[] = []): any[] {
-  const uniqueSocials = new Map<string, any>()
-  existingSocials.forEach((s) => s && s.url && uniqueSocials.set(`${s.platform}:${s.url}`.toLowerCase(), s))
-  newSocials.forEach((s) => {
-    if (s && s.url && !uniqueSocials.has(`${s.platform}:${s.url}`.toLowerCase())) {
-      uniqueSocials.set(`${s.platform}:${s.url}`.toLowerCase(), s)
-    }
-  })
-  return Array.from(uniqueSocials.values())
-}
-
-function mergeWebsites(existingWebsites: any[] = [], newWebsites: any[] = []): any[] {
-  const uniqueWebsites = new Map<string, any>()
-  existingWebsites.forEach((w) => w && w.url && uniqueWebsites.set(w.url.toLowerCase(), w))
-  newWebsites.forEach((w) => {
-    if (w && w.url && !uniqueWebsites.has(w.url.toLowerCase())) {
-      uniqueWebsites.set(w.url.toLowerCase(), w)
-    }
-  })
-  return Array.from(uniqueWebsites.values())
 }
 
 async function _fetchPageAttempt(page: number, attemptNumber: number, executionId: string): Promise<Response> {
@@ -151,7 +126,7 @@ async function fetchPageWithBackoff(page: number, executionId: string): Promise<
       if (retryAfterHeader) {
         const parsedWaitTime = Number.parseInt(retryAfterHeader, 10)
         if (!isNaN(parsedWaitTime)) {
-          waitTimeSeconds = Math.min(parsedWaitTime, 180)
+          waitTimeSeconds = Math.min(parsedWaitTime, 180) // Cap wait time
         }
       }
       console.log(
@@ -191,42 +166,60 @@ async function fetchPageWithBackoff(page: number, executionId: string): Promise<
   }
 }
 
-async function isTokenManuallyDisabled(contractAddressLowerCase: string, executionId: string): Promise<boolean> {
+async function isTokenManuallyDisabledOrHidden(
+  contractAddressLowerCase: string,
+  executionId: string,
+): Promise<boolean> {
   if (!supabase) {
     console.error(
-      `[${executionId}] Supabase client not initialized in isTokenManuallyDisabled for ${contractAddressLowerCase}.`,
+      `[${executionId}] Supabase client not initialized in isTokenManuallyDisabledOrHidden for ${contractAddressLowerCase}.`,
     )
-    return false
+    return false // Fail open, assume not disabled/hidden if DB check fails
   }
   try {
     const { data, error } = await supabase
       .from("tokens")
-      .select("enabled")
+      .select("enabled, is_hidden")
       .eq("contract_address", contractAddressLowerCase)
-      .eq("enabled", false)
       .maybeSingle()
 
     if (error && error.code !== "PGRST116") {
-      console.warn(
-        `[${executionId}] DB warning checking if token ${contractAddressLowerCase} is disabled: ${error.message}`,
-      )
+      // PGRST116: 'Fetched single row when multiple rows were expected' (should not happen with maybeSingle) or 'Exact one row was requested, but zero rows were matched'
+      console.warn(`[${executionId}] DB warning checking token ${contractAddressLowerCase} status: ${error.message}`)
     }
-    return data?.enabled === false
+    // If token exists and is (enabled === false OR is_hidden === true), consider it "not processable" by this cron for updates.
+    // This cron should not re-enable or unhide tokens.
+    if (data && (data.enabled === false || data.is_hidden === true)) {
+      return true
+    }
+    return false // Token is not found, or it is enabled and not hidden
   } catch (e: any) {
-    console.error(`[${executionId}] Exception checking if token ${contractAddressLowerCase} is disabled: ${e.message}`)
-    return false
+    console.error(`[${executionId}] Exception checking token ${contractAddressLowerCase} status: ${e.message}`)
+    return false // Fail open
   }
 }
 
-async function processGeckoPoolData(
+enum ProcessTokenStatus {
+  Inserted = "inserted",
+  ExistingRefreshed = "existing_refreshed",
+  SkippedManuallyDisabledOrHidden = "skipped_manual_disable_or_hidden",
+  Failed = "failed",
+}
+
+interface ProcessTokenResult {
+  status: ProcessTokenStatus
+  contractAddress: string | null
+}
+
+async function processTokenRecord(
   pool: GeckoPool,
   includedToken: GeckoToken,
-  filterThresholds: FilterThresholds, // filterThresholds are now used only for new tokens
+  filterThresholds: FilterThresholds,
   executionId: string,
-): Promise<{ status: "skipped" | "inserted" | "failed"; contractAddress: string | null }> {
+): Promise<ProcessTokenResult> {
   if (!supabase) {
-    console.error(`[${executionId}] Supabase client not initialized in processGeckoPoolData.`)
-    return { status: "failed", contractAddress: null }
+    console.error(`[${executionId}] Supabase client not initialized in processTokenRecord.`)
+    return { status: ProcessTokenStatus.Failed, contractAddress: null }
   }
 
   const geckoTokenId = includedToken.id
@@ -234,7 +227,7 @@ async function processGeckoPoolData(
     console.warn(
       `[${executionId}] Invalid or missing geckoTokenId from includedToken for pool ${pool.id}. Skipping. GeckoToken: ${JSON.stringify(includedToken)}`,
     )
-    return { status: "failed", contractAddress: null }
+    return { status: ProcessTokenStatus.Failed, contractAddress: null }
   }
 
   const contractAddress = extractHexAddress(geckoTokenId)
@@ -242,32 +235,48 @@ async function processGeckoPoolData(
     console.warn(
       `[${executionId}] Invalid contract address: "${contractAddress}" from GeckoToken ID: "${geckoTokenId}" for pool ${pool.id}. Skipping.`,
     )
-    return { status: "failed", contractAddress: null }
+    return { status: ProcessTokenStatus.Failed, contractAddress: null }
   }
 
-  if (await isTokenManuallyDisabled(contractAddress, executionId)) {
-    console.log(`[${executionId}] Skipping manually disabled token: ${contractAddress} (Gecko ID: ${geckoTokenId})`)
-    return { status: "skipped", contractAddress }
+  if (await isTokenManuallyDisabledOrHidden(contractAddress, executionId)) {
+    console.log(
+      `[${executionId}] Skipping manually disabled or hidden token: ${contractAddress} (Gecko ID: ${geckoTokenId})`,
+    )
+    return { status: ProcessTokenStatus.SkippedManuallyDisabledOrHidden, contractAddress }
   }
 
   const { data: existingToken, error: fetchError } = await supabase
     .from("tokens")
-    .select("id") // Only need to check for existence
+    .select("id, low_liquidity, low_volume") // Select flags to compare for new tokens
     .eq("contract_address", contractAddress)
     .maybeSingle()
 
   if (fetchError && fetchError.code !== "PGRST116") {
     console.error(`[${executionId}] Error fetching existing token ${contractAddress}: ${fetchError.message}`)
-    return { status: "failed", contractAddress }
+    return { status: ProcessTokenStatus.Failed, contractAddress }
   }
 
+  const now = new Date().toISOString()
+
   if (existingToken) {
-    // Token already exists. Per your request, we do nothing to its record in the 'tokens' table.
-    console.log(`[${executionId}] Token ${contractAddress} (ID: ${existingToken.id}) already exists. Skipping.`)
-    return { status: "skipped", contractAddress }
+    // Token already exists. Update its updated_at timestamp.
+    console.log(
+      `[${executionId}] Token ${contractAddress} (ID: ${existingToken.id}) already exists. Refreshing updated_at.`,
+    )
+    const { error: updateError } = await supabase
+      .from("tokens")
+      .update({ updated_at: now })
+      .eq("contract_address", contractAddress)
+
+    if (updateError) {
+      console.error(
+        `[${executionId}] Error updating updated_at for existing token ${contractAddress}: ${updateError.message}`,
+      )
+      // Don't mark as failed for this, metrics can still be inserted.
+    }
+    return { status: ProcessTokenStatus.ExistingRefreshed, contractAddress }
   } else {
     // Token is new, insert it.
-    // Calculate liquidity/volume flags for the new token based on current pool data
     const liquidityUsd = pool.attributes.reserve_in_usd ? Number.parseFloat(pool.attributes.reserve_in_usd) : 0
     const volume24h = pool.attributes.volume_usd?.h24 ? Number.parseFloat(pool.attributes.volume_usd.h24) : 0
     const currentLowLiquidity = liquidityUsd < filterThresholds.liquidity
@@ -275,7 +284,7 @@ async function processGeckoPoolData(
 
     const newImageUrl = includedToken.attributes.image_url || generateFallbackImageUrl(contractAddress)
     const newTokenData = {
-      id: geckoTokenId, // Primary Key from GeckoTerminal
+      id: geckoTokenId,
       contract_address: contractAddress,
       name: includedToken.attributes.name,
       symbol: includedToken.attributes.symbol,
@@ -284,13 +293,14 @@ async function processGeckoPoolData(
       dex_id: pool.relationships.dex.data.id,
       chain_id: "hyperevm",
       image_url: newImageUrl,
-      gecko_image_url: newImageUrl,
-      manual_image: false,
-      websites: includedToken.attributes.websites || [], // Uses mergeWebsites implicitly if needed for new
-      socials: includedToken.attributes.socials || [], // Uses mergeSocials implicitly if needed for new
-      enabled: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(), // Set updated_at on creation
+      gecko_image_url: newImageUrl, // Store the one from Gecko if available
+      manual_image: false, // New tokens from Gecko are not manual
+      websites: includedToken.attributes.websites || [],
+      socials: includedToken.attributes.socials || [],
+      enabled: true, // New tokens are enabled by default
+      is_hidden: false, // New tokens are not hidden by default
+      created_at: now,
+      updated_at: now,
       low_liquidity: currentLowLiquidity,
       low_volume: currentLowVolume,
     }
@@ -303,39 +313,27 @@ async function processGeckoPoolData(
       console.error(`[${executionId}] Insert data: ${JSON.stringify(newTokenData)}`)
       if (insertError.message.includes("duplicate key value violates unique constraint")) {
         console.warn(
-          `[${executionId}] Race condition? Insert failed for ${contractAddress} due to existing key. Treating as skipped.`,
+          `[${executionId}] Race condition? Insert failed for ${contractAddress} due to existing key. Treating as existing_refreshed.`,
         )
-        return { status: "skipped", contractAddress }
+        // Attempt to update updated_at as a fallback
+        await supabase.from("tokens").update({ updated_at: now }).eq("contract_address", contractAddress)
+        return { status: ProcessTokenStatus.ExistingRefreshed, contractAddress }
       }
-      return { status: "failed", contractAddress }
+      return { status: ProcessTokenStatus.Failed, contractAddress }
     }
-    return { status: "inserted", contractAddress }
+    return { status: ProcessTokenStatus.Inserted, contractAddress }
   }
 }
 
-async function insertTokenMetrics(pool: GeckoPool, executionId: string): Promise<boolean> {
+async function insertTokenMetrics(pool: GeckoPool, contractAddress: string, executionId: string): Promise<boolean> {
   if (!supabase) {
     console.error(`[${executionId}] Supabase client not initialized in insertTokenMetrics.`)
     return false
   }
-  const baseTokenId = pool.relationships.base_token.data.id
-  if (!baseTokenId || typeof baseTokenId !== "string") {
-    console.warn(
-      `[${executionId}] Invalid or missing base_token.data.id for metrics from pool ${pool.id}. Skipping metrics.`,
-    )
-    return false
-  }
-  const contractAddress = extractHexAddress(baseTokenId)
-
-  if (!contractAddress || !/^0x[a-f0-9]{40}$/.test(contractAddress)) {
-    console.warn(
-      `[${executionId}] Invalid contract address for metrics: "${contractAddress}" from pool ${pool.id} (baseTokenId: ${baseTokenId}). Skipping metrics.`,
-    )
-    return false
-  }
+  // contractAddress is now passed in, already validated and lowercased by processTokenRecord
 
   const metricsData = {
-    contract_address: contractAddress,
+    contract_address: contractAddress, // Use the passed, validated contractAddress
     price_usd: pool.attributes.base_token_price_usd ? Number.parseFloat(pool.attributes.base_token_price_usd) : null,
     market_cap: pool.attributes.market_cap_usd ? Number.parseFloat(pool.attributes.market_cap_usd) : null,
     fdv: pool.attributes.fdv_usd ? Number.parseFloat(pool.attributes.fdv_usd) : null,
@@ -362,30 +360,43 @@ async function insertTokenMetrics(pool: GeckoPool, executionId: string): Promise
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization")
   const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  const debugPassword = process.env.DEBUG_PASSWORD
+  const debugHeader = request.headers.get("x-debug-password")
+
+  let authorized = false
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    authorized = true
+    console.log(`[gecko-sync] Authorized via CRON_SECRET.`)
+  } else if (debugPassword && debugHeader === debugPassword) {
+    authorized = true
+    console.log(`[gecko-sync] Authorized via DEBUG_PASSWORD header.`)
+  }
+
+  if (!authorized) {
     console.warn("Unauthorized access attempt to GeckoTerminal sync cron.")
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
   if (!supabase) {
     console.error("🔴 CRITICAL: Supabase client not available for GeckoTerminal sync cron.")
     return NextResponse.json({ error: "Internal Server Error: Supabase client not initialized" }, { status: 500 })
   }
 
   const executionId = `gecko-sync-${Date.now()}`
-  console.log(`[${executionId}] 🦎 Starting GeckoTerminal sync (logic: insert new, skip existing)...`)
+  console.log(`[${executionId}] 🦎 Starting GeckoTerminal sync...`)
 
   let totalPagesAttempted = 0
   let successfulPages = 0
   let pagesSkippedOrFailedApi = 0
   let tokensNewlyInserted = 0
-  // tokensFlagsUpdated is removed as we no longer update flags for existing tokens here
-  let tokensSkippedAsExisting = 0
+  let tokensExistingRefreshed = 0 // New counter
+  let tokensSkippedManual = 0 // New counter for manually disabled/hidden
   let tokensSkippedCriteria = 0
   let metricsInsertedCount = 0
-  let inactiveTokensDisabledCount = 0
+  let inactiveTokensDisabledCount = 0 // This remains for the separate cleanup logic
 
   const INTER_PAGE_DELAY_MS = Number.parseInt(process.env.GECKO_INTER_PAGE_DELAY_MS || "15000", 10)
-  const MAX_PAGES_TO_FETCH = Number.parseInt(process.env.GECKO_MAX_PAGES || "10", 10)
+  const MAX_PAGES_TO_FETCH = Number.parseInt(process.env.GECKO_MAX_PAGES || "3", 10) // Reduced for testing, default was 10
   const MIN_VOLUME_USD = Number.parseFloat(process.env.GECKO_MIN_VOLUME_USD || "1000")
   const MIN_LIQUIDITY_USD = Number.parseFloat(process.env.GECKO_MIN_LIQUIDITY_USD || "5000")
 
@@ -397,7 +408,7 @@ export async function GET(request: NextRequest) {
     )
   } catch (e: any) {
     console.error(`[${executionId}] Failed to get filter thresholds: ${e.message}. Using hardcoded defaults.`)
-    filterThresholds = { liquidity: 10000, volume: 1000 }
+    filterThresholds = { liquidity: 10000, volume: 1000 } // Ensure this matches your intended defaults
   }
 
   for (let page = 1; page <= MAX_PAGES_TO_FETCH; page++) {
@@ -413,7 +424,9 @@ export async function GET(request: NextRequest) {
 
       for (const pool of geckoData.data) {
         if (pool.type !== "pool" || !pool.relationships?.base_token?.data?.id || !pool.attributes?.address) {
-          console.warn(`[${executionId}] Skipping malformed pool data on page ${page}: ${JSON.stringify(pool)}`)
+          console.warn(
+            `[${executionId}] Skipping malformed pool data on page ${page}: ${JSON.stringify(pool).substring(0, 200)}`,
+          )
           continue
         }
         const baseTokenInfo = pool.relationships.base_token.data
@@ -430,31 +443,34 @@ export async function GET(request: NextRequest) {
 
         if (volumeH24 < MIN_VOLUME_USD || liquidityUSD < MIN_LIQUIDITY_USD) {
           tokensSkippedCriteria++
+          // console.log(`[${executionId}] Token ${includedToken.attributes.symbol} (${extractHexAddress(includedToken.id)}) skipped due to low volume/liquidity. Vol: ${volumeH24}, Liq: ${liquidityUSD}`);
           continue
         }
 
-        const processResult = await processGeckoPoolData(pool, includedToken, filterThresholds, executionId)
+        const processResult = await processTokenRecord(pool, includedToken, filterThresholds, executionId)
 
-        // Always try to insert metrics if token processing didn't fail outright before address extraction,
-        // and the token wasn't skipped due to being manually disabled (which processGeckoPoolData handles).
-        if (processResult.status !== "failed" && processResult.contractAddress) {
-          // Check if it was skipped because it was manually disabled. If so, don't add metrics.
-          const isDisabled = await isTokenManuallyDisabled(processResult.contractAddress, executionId)
-          if (!isDisabled) {
-            const metricsSuccess = await insertTokenMetrics(pool, executionId)
-            if (metricsSuccess) metricsInsertedCount++
-          }
+        if (
+          processResult.contractAddress &&
+          (processResult.status === ProcessTokenStatus.Inserted ||
+            processResult.status === ProcessTokenStatus.ExistingRefreshed)
+        ) {
+          // If token was successfully inserted OR its updated_at was refreshed (and not skipped for other reasons), try to insert metrics.
+          const metricsSuccess = await insertTokenMetrics(pool, processResult.contractAddress, executionId)
+          if (metricsSuccess) metricsInsertedCount++
         }
 
         switch (processResult.status) {
-          case "inserted":
+          case ProcessTokenStatus.Inserted:
             tokensNewlyInserted++
             break
-          case "skipped": // This now covers tokens that existed or were manually disabled.
-            tokensSkippedAsExisting++
+          case ProcessTokenStatus.ExistingRefreshed:
+            tokensExistingRefreshed++
             break
-          case "failed":
-            // Error already logged in processGeckoPoolData
+          case ProcessTokenStatus.SkippedManuallyDisabledOrHidden:
+            tokensSkippedManual++
+            break
+          case ProcessTokenStatus.Failed:
+            // Error already logged in processTokenRecord
             break
         }
       }
@@ -462,29 +478,33 @@ export async function GET(request: NextRequest) {
       pagesSkippedOrFailedApi++
       console.log(`[${executionId}] Page ${page} was not processed or returned no data.`)
     }
-    if (page < MAX_PAGES_TO_FETCH) {
+    if (page < MAX_PAGES_TO_FETCH && MAX_PAGES_TO_FETCH > 1) {
+      // Only delay if there are more pages
       await new Promise((resolve) => setTimeout(resolve, INTER_PAGE_DELAY_MS))
     }
   }
 
-  console.log(`[${executionId}] Checking for inactive tokens...`)
+  // Inactive token disabling logic (separate from per-token processing)
+  // This part updates `updated_at` for tokens it disables.
+  console.log(`[${executionId}] Checking for inactive tokens (not updated in 7 days)...`)
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   try {
-    const { data: inactiveTokens, error: inactiveError } = await supabase
+    const { data: inactiveTokensToDisable, error: inactiveError } = await supabase
       .from("tokens")
       .select("contract_address")
-      .eq("enabled", true)
+      .eq("enabled", true) // Only consider currently enabled tokens
       .lt("updated_at", sevenDaysAgo)
 
     if (inactiveError) throw inactiveError
-    if (inactiveTokens && inactiveTokens.length > 0) {
-      const contractAddressesToDisable = inactiveTokens.map((t) => t.contract_address)
+
+    if (inactiveTokensToDisable && inactiveTokensToDisable.length > 0) {
+      const contractAddressesToDisable = inactiveTokensToDisable.map((t) => t.contract_address)
       console.log(
         `[${executionId}] Attempting to disable ${contractAddressesToDisable.length} inactive tokens: ${contractAddressesToDisable.join(", ")}`,
       )
       const { error: disableError } = await supabase
         .from("tokens")
-        .update({ enabled: false, updated_at: new Date().toISOString() })
+        .update({ enabled: false, updated_at: new Date().toISOString() }) // Set enabled to false and update timestamp
         .in("contract_address", contractAddressesToDisable)
       if (disableError) throw disableError
       inactiveTokensDisabledCount = contractAddressesToDisable.length
@@ -493,7 +513,7 @@ export async function GET(request: NextRequest) {
       console.log(`[${executionId}] No inactive tokens found to disable.`)
     }
   } catch (e: any) {
-    console.error(`[${executionId}] Error during inactive token check: ${e.message}`)
+    console.error(`[${executionId}] Error during inactive token check/disable: ${e.message}`)
   }
 
   const summary = {
@@ -504,10 +524,11 @@ export async function GET(request: NextRequest) {
     pages_succeeded: successfulPages,
     pages_skipped_or_failed_api: pagesSkippedOrFailedApi,
     tokens_newly_inserted: tokensNewlyInserted,
-    tokens_skipped_as_existing_or_disabled: tokensSkippedAsExisting, // Renamed for clarity
-    tokens_skipped_low_metrics_api: tokensSkippedCriteria,
+    tokens_existing_refreshed: tokensExistingRefreshed,
+    tokens_skipped_manual_disable_or_hidden: tokensSkippedManual,
+    tokens_skipped_low_metrics_api_criteria: tokensSkippedCriteria,
     metrics_records_inserted: metricsInsertedCount,
-    inactive_tokens_disabled: inactiveTokensDisabledCount,
+    inactive_tokens_auto_disabled: inactiveTokensDisabledCount,
   }
   console.log(`[${executionId}] ✅ GeckoTerminal sync summary:`, summary)
   return NextResponse.json({ success: true, summary })
