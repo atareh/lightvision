@@ -1,16 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
-// Ensure these are being loaded correctly from your Vercel environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 const duneApiKey = process.env.DUNE_API_KEY
-// This is the secret stored in Vercel that the incoming URL parameter must match
 const EXPECTED_DUNE_WEBHOOK_SECRET = process.env.DUNE_WEBHOOK_SECRET
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
   console.error("CRITICAL: Supabase URL or Service Role Key is not defined. Webhook cannot initialize Supabase client.")
-  // Note: This log might only appear in Vercel's serverless function logs, not prevent a 404 if the file itself isn't found.
 }
 
 const supabase = createClient(supabaseUrl!, supabaseServiceRoleKey!)
@@ -19,7 +16,6 @@ export async function POST(request: NextRequest) {
   const webhookInvocationId = `dune_webhook_received_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
   console.log(`[${webhookInvocationId}] Dune Webhook POST request received.`)
 
-  // 1. Authorization Check (via URL Query Parameter)
   const incomingSecret = request.nextUrl.searchParams.get("dune_secret")
 
   if (!EXPECTED_DUNE_WEBHOOK_SECRET) {
@@ -37,23 +33,28 @@ export async function POST(request: NextRequest) {
   }
   console.log(`[${webhookInvocationId}] Webhook authorized successfully via URL secret.`)
 
-  // ... (rest of the payload parsing and processing logic remains the same as before) ...
   let payload: any
   try {
     payload = await request.json()
+    // Log the entire raw payload to see its structure
+    console.log(`[${webhookInvocationId}] Full raw payload received:`, JSON.stringify(payload, null, 2))
+
+    // The following log will help confirm if fields are indeed missing from the raw payload
     console.log(
-      `[${webhookInvocationId}] Payload received - Execution ID: ${payload.execution_id}, Query ID: ${payload.query_id}, State: ${payload.state}, Query Name: ${payload.query_name || "N/A"}`,
+      `[${webhookInvocationId}] Attempting to parse from payload - Execution ID: ${payload.execution_id}, Query ID: ${payload.query_id}, State: ${payload.state}, Query Name: ${payload.query_name || "N/A"}`,
     )
   } catch (error) {
     console.error(`[${webhookInvocationId}] Failed to parse webhook JSON payload:`, error)
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 })
+    // It's possible Dune's test trigger sends an empty body or non-JSON, which would cause request.json() to fail.
+    // If so, the error here will indicate that.
+    return NextResponse.json({ error: "Invalid JSON payload or empty body" }, { status: 400 })
   }
 
   const { execution_id, query_id, state, result_id, error_message, query_name } = payload
 
   if (!execution_id || !query_id || !state) {
     console.error(
-      `[${webhookInvocationId}] Missing required fields in webhook payload. Execution ID: ${execution_id}, Query ID: ${query_id}, State: ${state}`,
+      `[${webhookInvocationId}] Missing required fields after attempting to destructure. Execution ID: ${execution_id}, Query ID: ${query_id}, State: ${state}. Check raw payload log above.`,
     )
     return NextResponse.json({ error: "Missing required fields in payload" }, { status: 400 })
   }
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ... (processAndStoreResults, storeDataInTable, getUTCDateString, and transform functions remain unchanged) ...
+// ... (processAndStoreResults and other helper functions remain unchanged) ...
 async function processAndStoreResults(
   queryId: number,
   rows: any[],
@@ -256,7 +257,7 @@ async function storeDataInTable(
   }
 
   console.log(`${logPrefix} Processing complete. Success: ${successCount}, Errors: ${errorCount}.`)
-  return errorCount === 0 && (recordsToUpsert.length > 0 || rows.length === 0) // Successful if no errors and either records were processed or no rows to begin with
+  return errorCount === 0 && (recordsToUpsert.length > 0 || rows.length === 0)
 }
 
 function getUTCDateString(dateInput: string | Date | null | undefined): string | null {
