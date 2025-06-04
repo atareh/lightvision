@@ -2,7 +2,43 @@
   "crons": [
     {
       "path": "/api/cron/update-token-filter-status",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/cmc-sync",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/memes-metrics",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/token-social-sync",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/hyperevm-sync-llama",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/poll-dune-results",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/hyperliquid-sync-revenue",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/daily-dune-sync",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/geckoterminal-sync",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/token-price-refresh",
+      "schedule": "* * * * *"
     }
   ]
 }
