@@ -7,22 +7,20 @@ interface Token {
   contract_address: string
   name: string | null
   symbol: string | null
+  image_url: string | null
+  pair_created_at: string | null // For age_days calculation
+  token_updated_at: string | null // Timestamp from 'tokens' table
+
   price_usd: number | null
   market_cap: number | null
   fdv: number | null
-  price_change_30m: number | null
-  price_change_24h: number | null
   volume_24h: number | null
   liquidity_usd: number | null
-  pair_address: string | null
-  pair_created_at: string | null
-  dex_id: string | null
-  chain_id: string
-  image_url: string | null
-  holder_count: number | null
-  last_updated_at: string
-  age_days: number | null
-  trade_url: string | null
+  price_change_30m: number | null
+  price_change_24h: number | null
+  metrics_recorded_at: string | null // Timestamp from 'token_metrics' table
+
+  age_days: number | null // Calculated on the client or server, but part of the final object
 }
 
 interface TokenData {

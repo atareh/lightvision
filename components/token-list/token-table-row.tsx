@@ -78,49 +78,6 @@ export default function TokenTableRow({
               </span>
               <Copy className="h-3 w-3 opacity-60 group-hover:opacity-100 group-hover:text-[#51d2c1] transition-all flex-shrink-0" />
             </div>
-            <div className="text-xs text-[#868d8f] flex items-center gap-2">
-              {(() => {
-                const allLinks = [
-                  ...(token.socials || []).map((social: any) => ({
-                    url: social.url,
-                    platform: social.platform,
-                    type: "social",
-                  })),
-                  ...(token.websites || []).map((website: any) => ({
-                    url: website.url,
-                    platform: "website",
-                    type: "website",
-                  })),
-                ]
-                return allLinks.length > 0 ? (
-                  allLinks.slice(0, 3).map((link: any, index: number) => (
-                    <a
-                      key={index}
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-[#51d2c1] transition-colors"
-                      title={`${link?.platform && typeof link.platform === "string" && link.platform.length > 0 ? link.platform.charAt(0).toUpperCase() + link.platform.slice(1) : "Link"}`}
-                    >
-                      {link?.platform === "twitter" && (
-                        <img src="/icons/twitter-x-24.png" alt="Twitter" className="h-3 w-3" />
-                      )}
-                      {link?.platform === "telegram" && (
-                        <img src="/icons/telegram-24.png" alt="Telegram" className="h-3 w-3" />
-                      )}
-                      {link?.platform === "discord" && (
-                        <img src="/icons/discord-24.png" alt="Discord" className="h-3 w-3" />
-                      )}
-                      {link?.platform === "website" && (
-                        <img src="/icons/geography-24.png" alt="Website" className="h-3 w-3" />
-                      )}
-                    </a>
-                  ))
-                ) : (
-                  <span className="opacity-60">—</span>
-                )
-              })()}
-            </div>
           </div>
         </div>
       </TableCell>
