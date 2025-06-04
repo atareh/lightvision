@@ -34,32 +34,23 @@ export async function POST(request: NextRequest) {
   console.log(`[${webhookInvocationId}] Webhook authorized successfully via URL secret.`)
 
   let payload: any
-  let queryResultPayload: any // To store the nested query_result object
+  let queryResultPayload: any
 
   try {
     payload = await request.json()
     console.log(`[${webhookInvocationId}] Full raw payload received:`, JSON.stringify(payload, null, 2))
-
-    // Extract the nested query_result object
-    queryResultPayload = payload.query_result || {} // Use empty object as fallback
-
+    queryResultPayload = payload.query_result || {}
     console.log(
       `[${webhookInvocationId}] Attempting to parse from payload.query_result - Execution ID: ${queryResultPayload.execution_id}, Query ID: ${queryResultPayload.query_id}, State: ${queryResultPayload.state}`,
     )
-    // Query name might not be in query_result, check root payload or handle if consistently missing
     console.log(`[${webhookInvocationId}] Query Name from root payload: ${payload.query_name || "N/A"}`)
   } catch (error) {
     console.error(`[${webhookInvocationId}] Failed to parse webhook JSON payload:`, error)
     return NextResponse.json({ error: "Invalid JSON payload or empty body" }, { status: 400 })
   }
 
-  // Destructure from the queryResultPayload (and root payload for others if applicable)
   const { execution_id, query_id, state } = queryResultPayload
-  // result_id is often the same as execution_id for fetching results.
-  // error_message might be at root or nested depending on Dune's error reporting for alerts.
-  // Let's assume error_message might be at the root for now if query_result itself indicates failure.
-  const error_message = payload.error_message || queryResultPayload.error_message // Check both
-  const query_name = payload.query_name // This was undefined in your example, might always be for this webhook type
+  const error_message_from_payload = payload.error_message || queryResultPayload.error_message
 
   if (!execution_id || !query_id || !state) {
     console.error(
@@ -75,21 +66,19 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date().toISOString()
-    const updateData: any = {
+    const duneExecutionUpdateData: any = {
       status: state,
       updated_at: now,
-      query_name: query_name || null, // Will be null if not provided by Dune
     }
 
     if (state === "QUERY_STATE_COMPLETED") {
-      updateData.completed_at = now
-      updateData.processed = false
-      updateData.error_message = null // Clear previous error if any
-      // result_id for fetching results is the execution_id
-      updateData.result_id = execution_id
+      duneExecutionUpdateData.completed_at = now
+      duneExecutionUpdateData.processed = false
+      duneExecutionUpdateData.error_message = null
+      duneExecutionUpdateData.result_id = execution_id
 
       console.log(
-        `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}, Name: ${query_name || "N/A"}) COMPLETED. Fetching results...`,
+        `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}) COMPLETED. Fetching results...`,
       )
 
       const resultsResponse = await fetch(`https://api.dune.com/api/v1/execution/${execution_id}/results`, {
@@ -101,40 +90,42 @@ export async function POST(request: NextRequest) {
         console.error(
           `[${webhookInvocationId}] Failed to fetch results for ${execution_id}: ${resultsResponse.status} - ${errorText}`,
         )
-        updateData.status = "FAILED_FETCH_RESULTS"
-        updateData.error_message = `Dune API Error (${resultsResponse.status}): ${errorText.substring(0, 250)}`
-        updateData.processed = true
+        duneExecutionUpdateData.status = "FAILED_FETCH_RESULTS"
+        duneExecutionUpdateData.error_message = `Dune API Error (${resultsResponse.status}): ${errorText.substring(0, 250)}`
+        duneExecutionUpdateData.processed = true
       } else {
         const resultsData = await resultsResponse.json()
-        // The actual rows are at resultsData.result.rows, as seen in previous Dune API interactions
         const rows = resultsData.result?.rows || []
-        updateData.row_count = rows.length
+        duneExecutionUpdateData.row_count = rows.length
         console.log(
           `[${webhookInvocationId}] Fetched ${rows.length} rows for execution ${execution_id}. Processing and storing...`,
         )
 
         const storeSuccess = await processAndStoreResults(query_id, rows, execution_id, webhookInvocationId)
         if (storeSuccess) {
-          updateData.processed = true
-          updateData.status = "COMPLETED_AND_STORED"
+          duneExecutionUpdateData.processed = true
+          duneExecutionUpdateData.status = "COMPLETED_AND_STORED"
         } else {
-          updateData.processed = true
-          updateData.status = "COMPLETED_STORE_FAILED"
-          updateData.error_message = updateData.error_message || "Failed to store all results into database."
+          duneExecutionUpdateData.processed = true
+          duneExecutionUpdateData.status = "COMPLETED_STORE_FAILED"
+          duneExecutionUpdateData.error_message =
+            duneExecutionUpdateData.error_message || "Failed to store all results into database."
           console.warn(`[${webhookInvocationId}] Execution ${execution_id} completed, but result storage had issues.`)
         }
       }
     } else if (state === "QUERY_STATE_FAILED" || state === "QUERY_STATE_CANCELLED") {
-      updateData.completed_at = now
-      updateData.processed = true
-      updateData.error_message =
-        error_message || queryResultPayload.error?.message || `Query ${state.replace("QUERY_STATE_", "")} on Dune.` // Try to get a more specific error from query_result if available
+      duneExecutionUpdateData.completed_at = now
+      duneExecutionUpdateData.processed = true
+      duneExecutionUpdateData.error_message =
+        error_message_from_payload ||
+        queryResultPayload.error?.message ||
+        `Query ${state.replace("QUERY_STATE_", "")} on Dune.`
       console.log(
-        `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}, Name: ${query_name || "N/A"}) ${state}. Error: ${updateData.error_message}`,
+        `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}) ${state}. Error: ${duneExecutionUpdateData.error_message}`,
       )
     } else {
       console.log(
-        `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}, Name: ${query_name || "N/A"}) is in state: ${state}. No results to fetch yet.`,
+        `[${webhookInvocationId}] Execution ${execution_id} (Query ${query_id}) is in state: ${state}. No results to fetch yet.`,
       )
     }
 
@@ -142,7 +133,7 @@ export async function POST(request: NextRequest) {
       {
         execution_id: execution_id,
         query_id: query_id,
-        ...updateData,
+        ...duneExecutionUpdateData,
       },
       {
         onConflict: "execution_id",
@@ -154,7 +145,7 @@ export async function POST(request: NextRequest) {
       console.error(`[${webhookInvocationId}] Error upserting to dune_executions for ${execution_id}:`, upsertError)
     }
 
-    console.log(`[${webhookInvocationId}] Successfully processed and logged webhook for execution_id: ${execution_id}`)
+    console.log(`[${webhookInvocationId}] Successfully processed webhook for execution_id: ${execution_id}`)
     return NextResponse.json({ success: true, message: "Webhook processed" })
   } catch (error: any) {
     console.error(`[${webhookInvocationId}] Unhandled error processing webhook for ${execution_id}:`, error)
@@ -175,7 +166,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ... (processAndStoreResults and other helper functions remain unchanged) ...
 async function processAndStoreResults(
   queryId: number,
   rows: any[],
@@ -189,8 +179,8 @@ async function processAndStoreResults(
   if (queryId === 5184581) {
     allSuccessful = await storeDataInTable(
       rows,
-      "hyperliquid_stats_by_day",
-      "block_day",
+      "dune_results",
+      "query_id, block_day", // UPDATED conflict target
       transformHyperliquidStatsRow,
       duneExecutionId,
       queryId,
@@ -258,18 +248,18 @@ async function storeDataInTable(
       .upsert(recordsToUpsert, { onConflict: conflictColumns, ignoreDuplicates: false })
 
     if (upsertError) {
-      console.error(`${logPrefix} Error upserting ${recordsToUpsert.length} rows:`, upsertError)
-      errorCount += recordsToUpsert.length - (count || 0)
+      console.error(`${logPrefix} Error upserting ${recordsToUpsert.length} rows to ${tableName}:`, upsertError)
+      errorCount += recordsToUpsert.length - (count || 0) // Approximate error count
     } else {
       successCount = count || recordsToUpsert.length
-      console.log(`${logPrefix} Successfully upserted/updated ${successCount} records.`)
+      console.log(`${logPrefix} Successfully upserted/updated ${successCount} records in ${tableName}.`)
     }
   } else {
-    console.log(`${logPrefix} No valid records to upsert after transformation.`)
+    console.log(`${logPrefix} No valid records to upsert to ${tableName} after transformation.`)
   }
 
-  console.log(`${logPrefix} Processing complete. Success: ${successCount}, Errors: ${errorCount}.`)
-  return errorCount === 0 && (recordsToUpsert.length > 0 || rows.length === 0)
+  console.log(`${logPrefix} Processing for ${tableName} complete. Success: ${successCount}, Errors: ${errorCount}.`)
+  return errorCount === 0
 }
 
 function getUTCDateString(dateInput: string | Date | null | undefined): string | null {
@@ -277,6 +267,7 @@ function getUTCDateString(dateInput: string | Date | null | undefined): string |
   try {
     let date: Date
     if (typeof dateInput === "string") {
+      // Handle YYYY-MM-DD format by ensuring it's treated as UTC
       if (dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
         date = new Date(dateInput + "T00:00:00Z")
       } else {
@@ -290,6 +281,7 @@ function getUTCDateString(dateInput: string | Date | null | undefined): string |
       console.warn("Invalid date input for getUTCDateString:", dateInput)
       return null
     }
+    // Return YYYY-MM-DD string representation of the UTC date
     return date.toISOString().split("T")[0]
   } catch (e) {
     console.error("Error parsing date in getUTCDateString:", dateInput, e)
@@ -298,20 +290,23 @@ function getUTCDateString(dateInput: string | Date | null | undefined): string |
 }
 
 function transformHyperliquidStatsRow(row: any, duneExecutionId: string, queryId: number): object | null {
-  const blockDay = getUTCDateString(row.block_day)
+  const blockDay = getUTCDateString(row.block_day) // Dune provides 'block_day' as YYYY-MM-DD HH:MM:SS
   if (!blockDay) {
     console.warn(`[TransformHyperliquidStats] Skipping row with invalid block_day: ${row.block_day}`)
     return null
   }
   return {
-    block_day: blockDay,
+    execution_id: duneExecutionId, // Added
+    query_id: queryId, // Added
+    block_day: blockDay, // This will be YYYY-MM-DD
     address_count: row.address_count ? Number.parseInt(String(row.address_count)) : null,
     deposit: row.deposit ? Number.parseFloat(String(row.deposit)) : null,
     withdraw: row.withdraw ? Number.parseFloat(String(row.withdraw)) : null,
     netflow: row.netflow ? Number.parseFloat(String(row.netflow)) : null,
-    total_wallets: row.address_count ? Number.parseInt(String(row.address_count)) : null,
-    tvl: row.TVL ? Number.parseFloat(String(row.TVL)) : null,
+    total_wallets: row.address_count ? Number.parseInt(String(row.address_count)) : null, // Added, mapped from address_count
+    tvl: row.TVL ? Number.parseFloat(String(row.TVL)) : null, // Dune payload uses 'TVL'
     updated_at: new Date().toISOString(),
+    // created_at is assumed to be handled by DB default
   }
 }
 
@@ -324,6 +319,9 @@ function transformHyperEVMStatsRow(row: any, duneExecutionId: string, queryId: n
     return null
   }
   return {
+    // Assuming hyperevm_stats_by_day also benefits from execution_id and query_id
+    execution_id: duneExecutionId,
+    query_id: queryId,
     day: day,
     protocol_name: row.protocol_name,
     daily_tvl: row.daily_tvl ? Number.parseFloat(String(row.daily_tvl)) : null,
@@ -339,6 +337,9 @@ function transformRevenueRow(row: any, duneExecutionId: string, queryId: number)
     return null
   }
   return {
+    // Assuming daily_revenue also benefits from execution_id and query_id
+    execution_id: duneExecutionId,
+    query_id: queryId,
     day: day,
     revenue: row.revenue ? Number.parseFloat(String(row.revenue)) : null,
     annualized_revenue: row.annualized_revenue ? Number.parseFloat(String(row.annualized_revenue)) : null,
