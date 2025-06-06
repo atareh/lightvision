@@ -6,17 +6,14 @@ import { useMemo, useState } from "react"
 export interface DataPoint {
   date: string
   value: number
-  cumulative?: number
 }
-
-type FormattedValue = string | { primary: string; secondary?: string }
 
 export interface GenericAreaChartProps {
   data: DataPoint[]
   color?: string
   width: number
   height: number
-  valueFormatter: (value: number, isYAxis?: boolean, dataPoint?: DataPoint) => FormattedValue
+  valueFormatter: (value: number, isYAxis?: boolean) => string
   dateFormatterAxis: (dateStr: string) => string
   dateFormatterTooltip: (dateStr: string) => string
   showWatermark?: boolean
@@ -39,14 +36,7 @@ export default function GenericAreaChart({
   isLoading = false,
 }: GenericAreaChartProps) {
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
-  const [tooltip, setTooltip] = useState<{
-    show: boolean
-    x: number
-    y: number
-    value: number
-    date: string
-    dataPoint?: DataPoint
-  }>({ show: false, x: 0, y: 0, value: 0, date: "", dataPoint: undefined })
+  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, value: 0, date: "" })
 
   const chartData = useMemo(() => {
     if (!data || width === 0 || height === 0) {
@@ -114,7 +104,6 @@ export default function GenericAreaChart({
       y: height - padding.bottom - ((d.value - minValue) / finalRange) * (height - padding.top - padding.bottom),
       value: d.value,
       date: d.date,
-      cumulative: d.cumulative,
       index: i,
     }))
 
@@ -149,7 +138,7 @@ export default function GenericAreaChart({
     const range = maxValue - minValue
     if (range === 0 && minValue === 0 && maxValue === 0) {
       // All data points are zero
-      return [{ value: 0, y: height - padding.bottom, label: valueFormatter(0, true) as string }]
+      return [{ value: 0, y: height - padding.bottom, label: valueFormatter(0, true) }]
     }
     const steps = isNarrow ? 4 : 5
     const stepSize = range / steps
@@ -161,7 +150,7 @@ export default function GenericAreaChart({
       labels.push({
         value: currentValue,
         y,
-        label: valueFormatter(currentValue, true) as string,
+        label: valueFormatter(currentValue, true),
       })
     }
     return labels
@@ -199,7 +188,6 @@ export default function GenericAreaChart({
         y: scaledMouseY,
         value: point.value,
         date: point.date,
-        dataPoint: point, // Ensure the full point is passed
       })
       setHoveredPoint(clampedIndex)
     }
@@ -240,7 +228,6 @@ export default function GenericAreaChart({
         y: scaledTouchY,
         value: point.value,
         date: point.date,
-        dataPoint: point, // Ensure the full point is passed
       })
       setHoveredPoint(clampedIndex)
     }
@@ -475,33 +462,21 @@ export default function GenericAreaChart({
         )}
       </svg>
 
-      {tooltip.show &&
-        !isLoading &&
-        (() => {
-          const formattedValue = valueFormatter(tooltip.value, false, tooltip.dataPoint)
-          const isObjectFormat = typeof formattedValue === "object" && formattedValue !== null
-
-          return (
-            <div
-              className="absolute z-50 bg-[#0f1a1f] rounded-lg px-4 py-3 text-sm pointer-events-none shadow-xl"
-              style={{
-                left: `${tooltipLeft}%`,
-                top: `${tooltipTop}%`,
-                transform: tooltipTransform,
-                border: `1px solid ${color}`,
-                boxShadow: `0 0 20px ${color}40`,
-              }}
-            >
-              <div className="text-white font-bold text-base mb-1">
-                {isObjectFormat ? formattedValue.primary : formattedValue}
-              </div>
-              {isObjectFormat && formattedValue.secondary && (
-                <div className="text-[#868d8f] text-xs mb-1">{formattedValue.secondary}</div>
-              )}
-              <div className="text-[#868d8f] text-xs">{dateFormatterTooltip(tooltip.date)}</div>
-            </div>
-          )
-        })()}
+      {tooltip.show && !isLoading && (
+        <div
+          className="absolute z-50 bg-[#0f1a1f] rounded-lg px-4 py-3 text-sm pointer-events-none shadow-xl"
+          style={{
+            left: `${tooltipLeft}%`,
+            top: `${tooltipTop}%`,
+            transform: tooltipTransform,
+            border: `1px solid ${color}`,
+            boxShadow: `0 0 20px ${color}40`,
+          }}
+        >
+          <div className="text-white font-bold text-base mb-1">{valueFormatter(tooltip.value, false)}</div>
+          <div className="text-[#868d8f] text-xs">{dateFormatterTooltip(tooltip.date)}</div>
+        </div>
+      )}
     </div>
   )
 }
