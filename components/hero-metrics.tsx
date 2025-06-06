@@ -61,15 +61,15 @@ export default function HeroMetrics() {
         { date: "2025-05-05", value: 957000000 },
       ],
       wallets: [
-        { date: "2025-04-20", value: 495000 },
-        { date: "2025-04-22", value: 497000 },
-        { date: "2025-04-24", value: 499000 },
-        { date: "2025-04-26", value: 500000 },
-        { date: "2025-04-28", value: 501000 },
-        { date: "2025-04-30", value: 502000 },
-        { date: "2025-05-02", value: 502500 },
-        { date: "2025-05-04", value: 503000 }, // Corrected date from 04-04
-        { date: "2025-05-05", value: 503463 },
+        { date: "2025-04-20", value: 1200 },
+        { date: "2025-04-22", value: 2000 },
+        { date: "2025-04-24", value: 1800 },
+        { date: "2025-04-26", value: 1000 },
+        { date: "2025-04-28", value: 1000 },
+        { date: "2025-04-30", value: 1000 },
+        { date: "2025-05-02", value: 500 },
+        { date: "2025-05-04", value: 500 },
+        { date: "2025-05-05", value: 463 },
       ],
     }),
     [],
@@ -136,11 +136,49 @@ export default function HeroMetrics() {
         const duneHistorical = await duneHistoricalRes.json()
         const revenueHistorical = await revenueHistoricalRes.json()
 
+        // Transform historical wallets data from cumulative to daily
+        const dailyWallets = []
+        if (duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 1) {
+          let cumulativeTotal = duneHistorical.historical_wallets[0]?.value || 0 // Start with first day's total
+
+          for (let i = 1; i < duneHistorical.historical_wallets.length; i++) {
+            const current = duneHistorical.historical_wallets[i]
+            const prev = duneHistorical.historical_wallets[i - 1]
+            const dailyValue = Math.max(0, current.value - prev.value) // Calculate difference
+            cumulativeTotal = current.value // Use the actual cumulative from API
+
+            dailyWallets.push({
+              date: current.date,
+              value: dailyValue,
+              cumulative: cumulativeTotal, // Add cumulative data
+            })
+          }
+
+          // If we only have one data point, skip transformation and use fallback
+          if (dailyWallets.length === 0) {
+            // Add cumulative to fallback data
+            let cumulative = 495000 // Starting point for fallback
+            const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
+              cumulative += item.value
+              return { ...item, cumulative }
+            })
+            dailyWallets.push(...fallbackWithCumulative)
+          }
+        } else {
+          // Use fallback data with cumulative calculation
+          let cumulative = 495000 // Starting point for fallback
+          const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
+            cumulative += item.value
+            return { ...item, cumulative }
+          })
+          dailyWallets.push(...fallbackWithCumulative)
+        }
+
         setHistoricalData({
           tvl: duneHistorical.historical_tvl || graphDataFallback.tvl,
           dailyRevenue: revenueHistorical.historical_daily_revenue || graphDataFallback.dailyRevenue,
           annualizedRevenue: revenueHistorical.historical_annualized_revenue || graphDataFallback.annualizedRevenue,
-          wallets: duneHistorical.historical_wallets || graphDataFallback.wallets,
+          wallets: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
         })
       } catch (error) {
         console.error("Error fetching historical data:", error)
@@ -242,18 +280,18 @@ export default function HeroMetrics() {
         dataKey: "annualizedRevenue",
       },
       wallets: {
-        title: "Total Wallets",
+        title: "Daily New Wallets",
         value: duneLoading ? (
           <div className="animate-pulse h-8 bg-[#2d5a4f] rounded w-24"></div>
         ) : duneData ? (
-          formatWallets(duneData.total_wallets)
+          formatWallets(duneData.address_count || duneData.daily_new_wallets || 0)
         ) : (
           "TO DO"
         ),
         change: duneLoading
           ? ""
-          : duneData && typeof duneData.address_count === "number" && duneData.address_count >= 0
-            ? `+${formatWallets(duneData.address_count, "0")} today`
+          : duneData && typeof duneData.total_wallets === "number" && duneData.total_wallets >= 0
+            ? `${formatWallets(duneData.total_wallets, "0")} total`
             : "",
         isPositive: true,
         isLoading: duneLoading,
@@ -267,14 +305,25 @@ export default function HeroMetrics() {
   const currentMetricConfig = metricsConfig[activeMetric]
   const chartDataForMetric = historicalData[activeMetric] || graphDataFallback[activeMetric]
 
-  const valueFormatterForMetric = (value: number, isYAxis?: boolean) => {
+  const valueFormatterForMetric = (value: number, isYAxis?: boolean, dataPoint?: any) => {
     if (activeMetric === "wallets") {
       if (isYAxis) {
         if (value >= 1e6) return `${Math.round(value / 1e6)}M`
         else if (value >= 1e3) return `${Math.round(value / 1e3)}K`
         return Math.round(value).toString()
       }
-      return value.toLocaleString()
+
+      // For tooltip, show both daily and cumulative
+      if (dataPoint && typeof dataPoint.cumulative === "number") {
+        const dailyFormatted = value.toLocaleString()
+        const cumulativeFormatted = dataPoint.cumulative.toLocaleString()
+        return {
+          primary: `${dailyFormatted} new`,
+          secondary: `${cumulativeFormatted} total wallets`,
+        }
+      }
+
+      return value.toLocaleString() // Fallback for tooltip if no cumulative data
     }
     if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`
     if (value >= 10e6) return `$${(value / 1e6).toFixed(1)}M`
