@@ -1,6 +1,6 @@
 "use client"
 import { MetricsCard } from "@/components/ui/metrics-card"
-import { formatTVL } from "@/lib/utils" // formatPercentageChange is no longer needed here
+import { formatTVL } from "@/lib/utils"
 import type { HyperEVMData } from "@/hooks/use-hyperevm-data"
 import type { TokenDataHookReturn } from "@/hooks/use-token-data"
 import type { MemesMetricsData } from "@/hooks/use-memes-metrics"
@@ -26,13 +26,6 @@ export default function HyperEVMOverviewMetrics({
   onCardClick,
   activeMetric,
 }: HyperEVMOverviewMetricsProps) {
-  // DEBUG LOGS (can be removed once confirmed)
-  // console.log("HyperEVMOverviewMetrics - Received memesMetricsData:", memesMetricsData);
-  // if (memesMetricsData) {
-  //   console.log("Market Cap Change from memes:", memesMetricsData.marketCapChange);
-  //   console.log("Volume Change from memes:", memesMetricsData.volumeChange);
-  // }
-
   // 1. HyperEVM TVL Card Data
   const tvlMetric = {
     title: "HyperEVM TVL",
@@ -50,11 +43,11 @@ export default function HyperEVMOverviewMetrics({
     isRealtime: false,
   }
 
-  // 2. Altcoin Market Cap Card Data
-  const rawMarketCapChange = memesMetricsData?.marketCapChange
+  // 2. Altcoin Market Cap Card Data - Now using visible tokens metrics
+  const rawMarketCapChange = memesMetricsData?.visibleMarketCapChange ?? memesMetricsData?.marketCapChange
   const marketCapMetric = {
     title: "Altcoin Market Cap",
-    value: tokenListData?.totalMarketCap ?? 0,
+    value: tokenListData?.totalMarketCap ?? 0, // This already reflects visible tokens in the UI
     change:
       rawMarketCapChange !== undefined && rawMarketCapChange !== null
         ? `${rawMarketCapChange >= 0 ? "+" : ""}${formatTVL(Math.abs(rawMarketCapChange))} 24h`
@@ -66,11 +59,11 @@ export default function HyperEVMOverviewMetrics({
     isRealtime: true,
   }
 
-  // 3. 24H Volume Card Data
-  const rawVolumeChange = memesMetricsData?.volumeChange
+  // 3. 24H Volume Card Data - Now using visible tokens metrics
+  const rawVolumeChange = memesMetricsData?.visibleVolumeChange ?? memesMetricsData?.volumeChange
   const volumeMetric = {
     title: "24H Volume",
-    value: tokenListData?.totalVolume24h ?? 0,
+    value: tokenListData?.totalVolume24h ?? 0, // This already reflects visible tokens in the UI
     change:
       rawVolumeChange !== undefined && rawVolumeChange !== null
         ? `${rawVolumeChange >= 0 ? "+" : ""}${formatTVL(Math.abs(rawVolumeChange))} 24h`
@@ -85,12 +78,11 @@ export default function HyperEVMOverviewMetrics({
   // 4. Tracked Tokens Card Data
   const trackedTokensMetric = {
     title: "Tracked Tokens",
-    value: tokenListData?.totalCount ?? 0,
+    value: tokenListData?.totalCount ?? 0, // This already reflects visible tokens in the UI
     isLoading: tokenListLoading,
     dataKey: "trackedTokens",
     color: "#8b5cf6",
     isRealtime: true,
-    // No 'change' for tracked tokens count unless specified
   }
 
   const metrics = [tvlMetric, marketCapMetric, volumeMetric, trackedTokensMetric]

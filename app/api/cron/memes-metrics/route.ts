@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { getActiveTokens } from "@/lib/token-filter" // Import the function to get visible tokens
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -27,8 +28,8 @@ async function handleMemesMetrics(request: NextRequest, requireAuth: boolean) {
       console.log(`📊 [${executionId}] Memes metrics manual test triggered`)
     }
 
-    // Get all enabled tokens with their latest metrics
-    const { data: tokens, error: tokensError } = await supabase
+    // 1. Get all enabled tokens (current behavior)
+    const { data: allEnabledTokens, error: tokensError } = await supabase
       .from("tokens")
       .select(`
         contract_address,
@@ -41,7 +42,7 @@ async function handleMemesMetrics(request: NextRequest, requireAuth: boolean) {
       throw new Error(`Failed to fetch tokens: ${tokensError.message}`)
     }
 
-    if (!tokens || tokens.length === 0) {
+    if (!allEnabledTokens || allEnabledTokens.length === 0) {
       console.log(`⚠️ [${executionId}] No enabled tokens found`)
       return NextResponse.json({
         success: true,
@@ -51,50 +52,81 @@ async function handleMemesMetrics(request: NextRequest, requireAuth: boolean) {
       })
     }
 
-    console.log(`📋 [${executionId}] Found ${tokens.length} enabled tokens`)
+    console.log(`📋 [${executionId}] Found ${allEnabledTokens.length} enabled tokens`)
 
-    // Get latest metrics for each token
-    const tokenMetrics = []
+    // 2. Get visible tokens (those that pass filtering criteria)
+    const visibleTokenAddresses = await getActiveTokens()
+    console.log(`📋 [${executionId}] Found ${visibleTokenAddresses.length} visible tokens`)
 
-    for (const token of tokens) {
-      const { data: latestMetric, error: metricError } = await supabase
-        .from("token_metrics")
-        .select("*")
-        .eq("contract_address", token.contract_address)
-        .order("recorded_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
+    // 3. Get latest metrics for ALL tokens in a single query instead of individual queries
+    // This avoids rate limits by making a single efficient query
+    const { data: allLatestMetrics, error: metricsError } = await supabase
+      .from("token_metrics")
+      .select("*")
+      .in(
+        "contract_address",
+        allEnabledTokens.map((t) => t.contract_address),
+      )
+      .order("recorded_at", { ascending: false })
 
-      if (metricError) {
-        console.error(`❌ [${executionId}] Error fetching metrics for ${token.contract_address}:`, metricError)
-        continue
+    if (metricsError) {
+      throw new Error(`Failed to fetch metrics: ${metricsError.message}`)
+    }
+
+    // Process the metrics to get only the latest for each token
+    const latestMetricsByToken = new Map()
+    for (const metric of allLatestMetrics || []) {
+      const existingMetric = latestMetricsByToken.get(metric.contract_address)
+      if (!existingMetric || new Date(metric.recorded_at) > new Date(existingMetric.recorded_at)) {
+        latestMetricsByToken.set(metric.contract_address, metric)
       }
+    }
 
+    // 4. Combine token info with their latest metrics
+    const allTokenMetrics = []
+    for (const token of allEnabledTokens) {
+      const latestMetric = latestMetricsByToken.get(token.contract_address)
       if (latestMetric) {
-        tokenMetrics.push({
+        allTokenMetrics.push({
           ...token,
           ...latestMetric,
         })
       }
     }
 
-    console.log(`📊 [${executionId}] Processing metrics for ${tokenMetrics.length} tokens with data`)
+    // 5. Filter for visible tokens
+    const visibleTokenMetrics = allTokenMetrics.filter((token) =>
+      visibleTokenAddresses.includes(token.contract_address),
+    )
 
-    // Calculate aggregate metrics
-    const aggregateMetrics = calculateAggregateMetrics(tokenMetrics, executionId)
+    console.log(
+      `📊 [${executionId}] Processing metrics for ${allTokenMetrics.length} enabled tokens and ${visibleTokenMetrics.length} visible tokens`,
+    )
 
-    // Store in memes_metrics table
+    // 6. Calculate aggregate metrics for both sets
+    const allTokensAggregateMetrics = calculateAggregateMetrics(allTokenMetrics, executionId, "all")
+    const visibleTokensAggregateMetrics = calculateAggregateMetrics(visibleTokenMetrics, executionId, "visible")
+
+    // 7. Store in memes_metrics table with both sets of metrics
     const { data: insertedData, error: insertError } = await supabase
       .from("memes_metrics")
       .insert([
         {
           recorded_at: new Date().toISOString(),
-          total_market_cap: aggregateMetrics.total_market_cap,
-          total_volume_24h: aggregateMetrics.total_volume_24h,
-          total_liquidity: aggregateMetrics.total_liquidity,
-          token_count: aggregateMetrics.token_count,
-          avg_price_change_1h: aggregateMetrics.avg_price_change_1h,
-          avg_price_change_24h: aggregateMetrics.avg_price_change_24h,
+          // All tokens metrics (current behavior)
+          total_market_cap: allTokensAggregateMetrics.total_market_cap,
+          total_volume_24h: allTokensAggregateMetrics.total_volume_24h,
+          total_liquidity: allTokensAggregateMetrics.total_liquidity,
+          token_count: allTokensAggregateMetrics.token_count,
+          avg_price_change_1h: allTokensAggregateMetrics.avg_price_change_1h,
+          avg_price_change_24h: allTokensAggregateMetrics.avg_price_change_24h,
+          // Visible tokens metrics (new)
+          visible_market_cap: visibleTokensAggregateMetrics.total_market_cap,
+          visible_volume_24h: visibleTokensAggregateMetrics.total_volume_24h,
+          visible_liquidity: visibleTokensAggregateMetrics.total_liquidity,
+          visible_token_count: visibleTokensAggregateMetrics.token_count,
+          visible_avg_price_change_1h: visibleTokensAggregateMetrics.avg_price_change_1h,
+          visible_avg_price_change_24h: visibleTokensAggregateMetrics.avg_price_change_24h,
           created_at: new Date().toISOString(),
         },
       ])
@@ -107,8 +139,10 @@ async function handleMemesMetrics(request: NextRequest, requireAuth: boolean) {
     const duration = Date.now() - startTime
 
     console.log(`✅ [${executionId}] Memes metrics stored successfully:`, {
-      total_market_cap: aggregateMetrics.total_market_cap,
-      token_count: aggregateMetrics.token_count,
+      all_tokens_market_cap: allTokensAggregateMetrics.total_market_cap,
+      all_tokens_count: allTokensAggregateMetrics.token_count,
+      visible_tokens_market_cap: visibleTokensAggregateMetrics.total_market_cap,
+      visible_tokens_count: visibleTokensAggregateMetrics.token_count,
       duration_ms: duration,
     })
 
@@ -118,7 +152,8 @@ async function handleMemesMetrics(request: NextRequest, requireAuth: boolean) {
       message: `Memes metrics calculated and stored successfully`,
       timestamp: new Date().toISOString(),
       duration_ms: duration,
-      metrics: aggregateMetrics,
+      all_tokens_metrics: allTokensAggregateMetrics,
+      visible_tokens_metrics: visibleTokensAggregateMetrics,
       stored_record: insertedData[0],
       test_mode: !requireAuth,
     })
@@ -143,8 +178,8 @@ async function handleMemesMetrics(request: NextRequest, requireAuth: boolean) {
   }
 }
 
-function calculateAggregateMetrics(tokenMetrics: any[], executionId: string) {
-  console.log(`🧮 [${executionId}] Calculating aggregate metrics...`)
+function calculateAggregateMetrics(tokenMetrics: any[], executionId: string, metricType: "all" | "visible" = "all") {
+  console.log(`🧮 [${executionId}] Calculating ${metricType} tokens aggregate metrics...`)
 
   let totalMarketCap = 0
   let totalVolume24h = 0
@@ -196,7 +231,7 @@ function calculateAggregateMetrics(tokenMetrics: any[], executionId: string) {
     avg_price_change_24h: avgPriceChange24h,
   }
 
-  console.log(`📊 [${executionId}] Calculated metrics:`, {
+  console.log(`📊 [${executionId}] Calculated ${metricType} tokens metrics:`, {
     total_market_cap: totalMarketCap,
     token_count: tokenCount,
     avg_price_change_24h: avgPriceChange24h,

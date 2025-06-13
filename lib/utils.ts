@@ -85,7 +85,7 @@ export function formatPercentage(value: number | null | undefined, decimals = 2,
 
 // Specific formatters for the application, consolidated here
 
-export const formatTVL = (tvl: number | null | undefined, defaultValue = "TO DO"): string => {
+export const formatTVL = (tvl: number | null | undefined, defaultValue = "—"): string => {
   if (tvl === null || tvl === undefined || tvl === 0) return defaultValue
   const absTvl = Math.abs(tvl)
   if (absTvl >= 1e9) return `$${(tvl / 1e9).toFixed(2)}B`
@@ -193,12 +193,12 @@ export const formatNetflow = (netflow: number | null | undefined, defaultValue =
   return `${prefix}$${absNetflow.toFixed(2)} today`
 }
 
-export const formatWallets = (count: number | null | undefined, defaultValue = "TO DO"): string => {
+export const formatWallets = (count: number | null | undefined, defaultValue = "—"): string => {
   if (count === null || count === undefined || count === 0) return defaultValue
   return count.toLocaleString()
 }
 
-export const formatRevenue = (revenue: number | null | undefined, defaultValue = "TO DO"): string => {
+export const formatRevenue = (revenue: number | null | undefined, defaultValue = "—"): string => {
   if (revenue === null || revenue === undefined || revenue === 0) return defaultValue
   const absRevenue = Math.abs(revenue)
   if (absRevenue >= 1e6) return `$${(revenue / 1e6).toFixed(2)}M`

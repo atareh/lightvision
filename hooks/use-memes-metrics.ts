@@ -6,6 +6,8 @@ interface MemesMetricsData {
   metrics: any[]
   marketCapChange: number | null
   volumeChange: number | null
+  visibleMarketCapChange: number | null
+  visibleVolumeChange: number | null
   oldest?: any
   latest?: any
 }

@@ -21,6 +21,8 @@ export async function GET() {
         metrics: [],
         marketCapChange: null,
         volumeChange: null,
+        visibleMarketCapChange: null,
+        visibleVolumeChange: null,
         last_updated: new Date().toISOString(),
       })
     }
@@ -29,19 +31,28 @@ export async function GET() {
     const oldest = metrics[0]
     const latest = metrics[metrics.length - 1]
 
+    // Calculate changes for all tokens (current behavior)
     const marketCapChange = latest.total_market_cap - oldest.total_market_cap
     const volumeChange = latest.total_volume_24h - oldest.total_volume_24h
+
+    // Calculate changes for visible tokens (new)
+    const visibleMarketCapChange = latest.visible_market_cap - (oldest.visible_market_cap || 0)
+    const visibleVolumeChange = latest.visible_volume_24h - (oldest.visible_volume_24h || 0)
 
     // Use the latest updated_at timestamp from the most recent record
     const lastUpdated = latest.updated_at || latest.recorded_at || new Date().toISOString()
 
     return NextResponse.json({
       metrics,
+      // All tokens metrics (current behavior)
       marketCapChange,
       volumeChange,
+      // Visible tokens metrics (new)
+      visibleMarketCapChange,
+      visibleVolumeChange,
       oldest,
       latest,
-      last_updated: lastUpdated, // Add this field for consistency
+      last_updated: lastUpdated,
     })
   } catch (error) {
     console.error("Error in memes metrics API:", error)
