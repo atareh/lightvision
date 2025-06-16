@@ -17,6 +17,7 @@ export async function GET() {
     }
 
     if (!metrics || metrics.length === 0) {
+      console.log("No metrics found in database")
       return NextResponse.json({
         metrics: [],
         marketCapChange: null,
@@ -31,13 +32,34 @@ export async function GET() {
     const oldest = metrics[0]
     const latest = metrics[metrics.length - 1]
 
+    console.log("Debug memes metrics calculation:", {
+      totalRecords: metrics.length,
+      oldest: {
+        recorded_at: oldest.recorded_at,
+        total_market_cap: oldest.total_market_cap,
+        visible_market_cap: oldest.visible_market_cap,
+      },
+      latest: {
+        recorded_at: latest.recorded_at,
+        total_market_cap: latest.total_market_cap,
+        visible_market_cap: latest.visible_market_cap,
+      },
+    })
+
     // Calculate changes for all tokens (current behavior)
     const marketCapChange = latest.total_market_cap - oldest.total_market_cap
     const volumeChange = latest.total_volume_24h - oldest.total_volume_24h
 
     // Calculate changes for visible tokens (new)
-    const visibleMarketCapChange = latest.visible_market_cap - (oldest.visible_market_cap || 0)
-    const visibleVolumeChange = latest.visible_volume_24h - (oldest.visible_volume_24h || 0)
+    const visibleMarketCapChange = (latest.visible_market_cap || 0) - (oldest.visible_market_cap || 0)
+    const visibleVolumeChange = (latest.visible_volume_24h || 0) - (oldest.visible_volume_24h || 0)
+
+    console.log("Calculated changes:", {
+      marketCapChange,
+      volumeChange,
+      visibleMarketCapChange,
+      visibleVolumeChange,
+    })
 
     // Use the latest updated_at timestamp from the most recent record
     const lastUpdated = latest.updated_at || latest.recorded_at || new Date().toISOString()
