@@ -290,6 +290,17 @@ export default function TestPage() {
     }
   }
 
+  // New trigger function for Memes Metrics Cron
+  const triggerMemesMetrics = async () => {
+    handleApiCall(
+      "/api/cron/memes-metrics",
+      setMemesMetricsLoading,
+      setMemesMetricsResult,
+      "Memes metrics aggregation completed successfully.",
+      "Memes metrics aggregation failed.",
+    )
+  }
+
   return (
     <DebugAuth title="Test Page - System Triggers">
       <div className="container mx-auto p-4">
@@ -493,18 +504,11 @@ Volume:
             title="Memes Metrics Cron"
             description="Test the hourly memes metrics aggregation cron job."
             buttonText="Test Memes Metrics"
-            onTrigger={() =>
-              handleApiCall(
-                "/api/cron/memes-metrics",
-                setMemesMetricsLoading,
-                setMemesMetricsResult,
-                "Memes metrics aggregation completed successfully.",
-                "Memes metrics aggregation failed.",
-              )
-            }
+            onTrigger={triggerMemesMetrics}
             isLoading={memesMetricsLoading}
             result={memesMetricsResult}
             icon={BarChartBig} // New Icon
+            requiresPassword={true}
           />
 
           <TestUnitCard

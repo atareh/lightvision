@@ -26,6 +26,22 @@ export default function HyperEVMOverviewMetrics({
   onCardClick,
   activeMetric,
 }: HyperEVMOverviewMetricsProps) {
+  // Add debugging console logs
+  console.log("HyperEVMOverviewMetrics Debug:", {
+    memesMetricsData,
+    memesMetricsLoading,
+    tokenListData: {
+      totalMarketCap: tokenListData?.totalMarketCap,
+      totalVolume24h: tokenListData?.totalVolume24h,
+    },
+    changes: {
+      visibleMarketCapChange: memesMetricsData?.visibleMarketCapChange,
+      visibleVolumeChange: memesMetricsData?.visibleVolumeChange,
+      marketCapChange: memesMetricsData?.marketCapChange,
+      volumeChange: memesMetricsData?.volumeChange,
+    },
+  })
+
   // 1. HyperEVM TVL Card Data
   const tvlMetric = {
     title: "HyperEVM TVL",

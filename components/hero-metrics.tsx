@@ -318,12 +318,12 @@ export default function HeroMetrics() {
         const dailyFormatted = value.toLocaleString()
         const cumulativeFormatted = dataPoint.cumulative.toLocaleString()
         return {
-          primary: `${dailyFormatted} new`,
+          primary: `${dailyFormatted} new wallets`,
           secondary: `${cumulativeFormatted} total wallets`,
         }
       }
 
-      return value.toLocaleString() // Fallback for tooltip if no cumulative data
+      return `${value.toLocaleString()} new wallets` // Fallback for tooltip if no cumulative data
     }
     if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`
     if (value >= 10e6) return `$${(value / 1e6).toFixed(1)}M`

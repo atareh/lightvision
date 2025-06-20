@@ -1,15 +1,21 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+
+// Opt out of caching for this route
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Add request parameter
   try {
     // Get all memes metrics data ordered by time
     const { data: metrics, error } = await supabase
       .from("memes_metrics")
       .select("*")
-      .order("recorded_at", { ascending: true })
+      .order("recorded_at", { ascending: false })
+      .limit(2000)
 
     if (error) {
       console.error("Error fetching memes metrics:", error)
@@ -24,58 +30,91 @@ export async function GET() {
         volumeChange: null,
         visibleMarketCapChange: null,
         visibleVolumeChange: null,
-        last_updated: new Date().toISOString(),
+        last_updated: new Date().toISOString(), // Ensure this is dynamic
       })
     }
 
-    // Calculate changes between current (latest) and oldest entry
-    const oldest = metrics[0]
-    const latest = metrics[metrics.length - 1]
+    // Get the latest record
+    const latest = metrics[0]
 
-    console.log("Debug memes metrics calculation:", {
+    // Find record from ~24 hours ago (not the oldest ever)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+    // Find the closest record to 24 hours ago
+    let record24hAgo = null
+    let minTimeDiff = Number.POSITIVE_INFINITY
+
+    for (const metric of metrics) {
+      const recordTime = new Date(metric.recorded_at)
+      const timeDiff = Math.abs(recordTime.getTime() - twentyFourHoursAgo.getTime())
+
+      if (timeDiff < minTimeDiff) {
+        minTimeDiff = timeDiff
+        record24hAgo = metric
+      }
+    }
+
+    console.log("Debug memes metrics 24h calculation:", {
       totalRecords: metrics.length,
-      oldest: {
-        recorded_at: oldest.recorded_at,
-        total_market_cap: oldest.total_market_cap,
-        visible_market_cap: oldest.visible_market_cap,
-      },
       latest: {
         recorded_at: latest.recorded_at,
         total_market_cap: latest.total_market_cap,
         visible_market_cap: latest.visible_market_cap,
       },
+      record24hAgo: record24hAgo
+        ? {
+            recorded_at: record24hAgo.recorded_at,
+            total_market_cap: record24hAgo.total_market_cap,
+            visible_market_cap: record24hAgo.visible_market_cap,
+            timeDiffHours: minTimeDiff / (1000 * 60 * 60),
+          }
+        : null,
     })
 
-    // Calculate changes for all tokens (current behavior)
-    const marketCapChange = latest.total_market_cap - oldest.total_market_cap
-    const volumeChange = latest.total_volume_24h - oldest.total_volume_24h
+    // Calculate 24h changes (only if we have a record to compare with)
+    let marketCapChange = null
+    let volumeChange = null
+    let visibleMarketCapChange = null
+    let visibleVolumeChange = null
 
-    // Calculate changes for visible tokens (new)
-    const visibleMarketCapChange = (latest.visible_market_cap || 0) - (oldest.visible_market_cap || 0)
-    const visibleVolumeChange = (latest.visible_volume_24h || 0) - (oldest.visible_volume_24h || 0)
+    if (record24hAgo && record24hAgo.id !== latest.id) {
+      // All tokens metrics (current behavior)
+      marketCapChange = latest.total_market_cap - record24hAgo.total_market_cap
+      volumeChange = latest.total_volume_24h - record24hAgo.total_volume_24h
 
-    console.log("Calculated changes:", {
+      // Visible tokens metrics (new)
+      visibleMarketCapChange = (latest.visible_market_cap || 0) - (record24hAgo.visible_market_cap || 0)
+      visibleVolumeChange = (latest.visible_volume_24h || 0) - (record24hAgo.visible_volume_24h || 0)
+    }
+
+    console.log("Calculated 24h changes:", {
       marketCapChange,
       volumeChange,
       visibleMarketCapChange,
       visibleVolumeChange,
+      hasComparison: record24hAgo && record24hAgo.id !== latest.id,
     })
 
-    // Use the latest updated_at timestamp from the most recent record
+    // Use the latest updated_at timestamp from the most recent record if available, otherwise recorded_at
     const lastUpdated = latest.updated_at || latest.recorded_at || new Date().toISOString()
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       metrics,
-      // All tokens metrics (current behavior)
       marketCapChange,
       volumeChange,
-      // Visible tokens metrics (new)
       visibleMarketCapChange,
       visibleVolumeChange,
-      oldest,
       latest,
+      record24hAgo,
       last_updated: lastUpdated,
     })
+
+    // Add cache-busting headers
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    response.headers.set("Pragma", "no-cache")
+    response.headers.set("Expires", "0")
+
+    return response
   } catch (error) {
     console.error("Error in memes metrics API:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

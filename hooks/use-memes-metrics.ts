@@ -21,13 +21,25 @@ export function useMemesMetrics() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const response = await fetch("/api/memes-metrics")
+        // THIS IS THE FETCH CALL
+        const response = await fetch("/api/memes-metrics") // Potential caching here
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
         }
 
         const result = await response.json()
+
+        // Add debugging console log
+        console.log("Memes Metrics API Response:", {
+          visibleMarketCapChange: result.visibleMarketCapChange,
+          visibleVolumeChange: result.visibleVolumeChange,
+          marketCapChange: result.marketCapChange,
+          volumeChange: result.volumeChange,
+          latest: result.latest,
+          oldest: result.oldest,
+        })
+
         setData(result)
         setError(null)
       } catch (err) {
@@ -38,13 +50,13 @@ export function useMemesMetrics() {
       }
     }
 
-    fetchData()
+    fetchData() // Initial fetch
 
     // Refresh every 5 minutes
-    const interval = setInterval(fetchData, 5 * 60 * 1000)
+    const interval = setInterval(fetchData, 5 * 60 * 1000) // Subsequent fetches
 
     return () => clearInterval(interval)
-  }, [])
+  }, []) // Empty dependency array means this runs once on mount and sets up interval
 
   return { data, loading, error }
 }
