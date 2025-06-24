@@ -55,30 +55,101 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
 
 async function upsertToSupabase(rows: any[], executionId: string) {
   if (!rows || rows.length === 0) {
-    return { inserted: 0, updated: 0, error: null }
+    return { inserted: 0, updated: 0, skipped: 0, error: null }
   }
 
+  console.log(`Manual sync: Processing ${rows.length} rows for selective upsert`)
+
+  let inserted = 0
+  let updated = 0
+  let skipped = 0
   const now = new Date().toISOString()
 
-  // Add only updated_at timestamp to all rows (created_at will be set automatically on first insert)
-  const rowsWithTimestamps = rows.map((row) => ({
-    ...row,
-    updated_at: now,
-  }))
+  // Get the latest date we have in the database
+  const { data: latestRecord, error: latestError } = await supabase
+    .from("daily_revenue")
+    .select("day, revenue, annualized_revenue")
+    .order("day", { ascending: false })
+    .limit(1)
+    .single()
 
-  // Use upsert but with merge to ensure updated_at is always set
-  const { error } = await supabase.from("daily_revenue").upsert(rowsWithTimestamps, {
-    onConflict: "day",
-    ignoreDuplicates: false,
-  })
-
-  if (error) {
-    console.error("Manual sync: Failed to upsert records:", error.message)
-    return { inserted: 0, updated: 0, error: error.message }
+  if (latestError && latestError.code !== "PGRST116") {
+    // PGRST116 = no rows found
+    console.error("Manual sync: Error fetching latest record:", latestError.message)
+    return { inserted: 0, updated: 0, skipped: 0, error: latestError.message }
   }
 
-  console.log(`Manual sync: Successfully upserted ${rows.length} records with updated_at: ${now}`)
-  return { inserted: 0, updated: rows.length, error: null }
+  const latestDay = latestRecord?.day || "1970-01-01"
+  console.log(`Manual sync: Latest day in database: ${latestDay}`)
+
+  // Filter to only process new days or days with changed values
+  const rowsToProcess = []
+
+  for (const row of rows) {
+    if (row.day > latestDay) {
+      // New day - always insert
+      rowsToProcess.push({ ...row, action: "insert" })
+    } else if (row.day === latestDay) {
+      // Same day - check if values changed
+      const revenueChanged = Math.abs((latestRecord.revenue || 0) - row.revenue) > 0.01
+      const annualizedChanged = Math.abs((latestRecord.annualized_revenue || 0) - (row.annualized_revenue || 0)) > 1
+
+      if (revenueChanged || annualizedChanged) {
+        rowsToProcess.push({ ...row, action: "update" })
+        console.log(
+          `Manual sync: Values changed for ${row.day} - Revenue: ${latestRecord.revenue} -> ${row.revenue}, Annualized: ${latestRecord.annualized_revenue} -> ${row.annualized_revenue}`,
+        )
+      } else {
+        skipped++
+        console.log(`Manual sync: No changes for ${row.day}, skipping`)
+      }
+    } else {
+      // Older day - skip unless we want to backfill
+      skipped++
+    }
+  }
+
+  console.log(
+    `Manual sync: Will process ${rowsToProcess.length} rows (${rowsToProcess.filter((r) => r.action === "insert").length} inserts, ${rowsToProcess.filter((r) => r.action === "update").length} updates), skipping ${skipped}`,
+  )
+
+  // Process only the rows that need changes
+  for (const row of rowsToProcess) {
+    const { action, ...rowData } = row
+
+    if (action === "insert") {
+      const { error: insertError } = await supabase.from("daily_revenue").insert({
+        ...rowData,
+        created_at: now,
+        updated_at: now,
+      })
+
+      if (insertError) {
+        console.error(`Manual sync: Failed to insert ${rowData.day}:`, insertError.message)
+      } else {
+        inserted++
+        console.log(`Manual sync: Inserted new record for ${rowData.day}`)
+      }
+    } else if (action === "update") {
+      const { error: updateError } = await supabase
+        .from("daily_revenue")
+        .update({
+          ...rowData,
+          updated_at: now,
+        })
+        .eq("day", rowData.day)
+
+      if (updateError) {
+        console.error(`Manual sync: Failed to update ${rowData.day}:`, updateError.message)
+      } else {
+        updated++
+        console.log(`Manual sync: Updated record for ${rowData.day}`)
+      }
+    }
+  }
+
+  console.log(`Manual sync: Completed - Inserted: ${inserted}, Updated: ${updated}, Skipped: ${skipped}`)
+  return { inserted, updated, skipped, error: null }
 }
 
 export async function POST(req: Request) {
@@ -141,6 +212,7 @@ export async function POST(req: Request) {
       success: true,
       inserted: result.inserted,
       updated: result.updated,
+      skipped: result.skipped,
       latest_day: latestData.day,
       latest_revenue: latestData.revenue,
       latest_annualized: latestData.annualized_revenue,

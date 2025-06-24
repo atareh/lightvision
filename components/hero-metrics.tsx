@@ -4,7 +4,7 @@ import { useState, useMemo, useRef, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { MetricsCard } from "@/components/ui/metrics-card"
 import { ChartHeader } from "@/components/ui/chart-header"
-import GenericAreaChart, { type DataPoint } from "@/components/ui/generic-area-chart" // Import the new generic chart
+import GenericAreaChart, { type DataPoint } from "@/components/ui/generic-area-chart"
 
 import { useDuneData } from "@/hooks/use-dune-data"
 import { useRevenueData } from "@/hooks/use-revenue-data"
@@ -16,7 +16,7 @@ export default function HeroMetrics() {
 
   const [activeMetric, setActiveMetric] = useState<"tvl" | "dailyRevenue" | "annualizedRevenue" | "wallets">("tvl")
   const chartContainerRef = useRef<HTMLDivElement>(null)
-  const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 }) // Initialize with 0
+  const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 })
   const [timePeriod, setTimePeriod] = useState<"7D" | "30D" | "90D" | "MAX">("7D")
 
   const graphDataFallback = useMemo(
@@ -102,97 +102,109 @@ export default function HeroMetrics() {
     }
   }, [])
 
-  useEffect(() => {
-    const fetchHistoricalData = async () => {
-      setLoadingHistorical(true)
-      try {
-        const timestamp = Date.now()
-        const [duneHistoricalRes, revenueHistoricalRes] = await Promise.all([
-          fetch(`/api/dune-data?period=${timePeriod.toLowerCase()}&_t=${timestamp}`),
-          fetch(`/api/revenue-data?period=${timePeriod.toLowerCase()}&_t=${timestamp}`),
-        ])
+  // Use the new combined API with better error handling and caching
+  const fetchHistoricalData = async (retryCount = 0) => {
+    setLoadingHistorical(true)
+    try {
+      const timestamp = Date.now()
+      const response = await fetch(`/api/combined-metrics?period=${timePeriod.toLowerCase()}&_t=${timestamp}`)
 
-        if (!duneHistoricalRes.ok || !revenueHistoricalRes.ok) {
-          console.error("Failed to fetch historical data", {
-            duneStatus: duneHistoricalRes.status,
-            revenueStatus: revenueHistoricalRes.status,
-          })
-          // Fallback to static data on API error
-          setHistoricalData({
-            tvl: graphDataFallback.tvl,
-            dailyRevenue: graphDataFallback.dailyRevenue,
-            annualizedRevenue: graphDataFallback.annualizedRevenue,
-            wallets: graphDataFallback.wallets,
-          })
+      // Handle rate limiting with exponential backoff
+      if (response.status === 429) {
+        if (retryCount < 3) {
+          const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s, 4s
+          console.log(`Rate limited, retrying in ${delay}ms...`)
+          setTimeout(() => {
+            fetchHistoricalData(retryCount + 1)
+          }, delay)
+          return
+        } else {
+          console.error("Max retries exceeded for rate limit")
+          setHistoricalData(graphDataFallback)
           return
         }
-
-        const duneHistorical = await duneHistoricalRes.json()
-        const revenueHistorical = await revenueHistoricalRes.json()
-
-        // Transform historical wallets data - SIMPLE VERSION
-        console.log("🔍 Debug wallet data processing:", {
-          hasWalletData: !!(duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0),
-          walletDataLength: duneHistorical.historical_wallets?.length || 0,
-          rawWalletData: duneHistorical.historical_wallets || [],
-          timePeriod: timePeriod,
-        })
-
-        const dailyWallets = []
-        if (duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0) {
-          // Sort data chronologically
-          const sortedData = [...duneHistorical.historical_wallets].sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-          )
-
-          console.log("📊 Sorted wallet data:", sortedData)
-
-          // Use address_count directly as daily values and calculate running cumulative
-          let runningCumulative = 0
-
-          sortedData.forEach((item) => {
-            runningCumulative += item.value // item.value should be address_count
-            dailyWallets.push({
-              date: item.date,
-              value: item.value, // THIS IS THE DAILY COUNT THAT SHOWS ON THE GRAPH
-              cumulative: runningCumulative, // THIS IS FOR THE TOOLTIP
-            })
-          })
-
-          console.log("✅ Final processed wallet data:", dailyWallets)
-        } else {
-          // Use fallback data
-          let cumulative = 495000
-          const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
-            cumulative += item.value
-            return { ...item, cumulative }
-          })
-          dailyWallets.push(...fallbackWithCumulative)
-        }
-
-        console.log("📈 Final wallet data being set:", {
-          walletDataLength: dailyWallets.length,
-          usingFallback: dailyWallets.length === 0,
-          finalData: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
-        })
-
-        setHistoricalData({
-          tvl: duneHistorical.historical_tvl || graphDataFallback.tvl,
-          dailyRevenue: revenueHistorical.historical_daily_revenue || graphDataFallback.dailyRevenue,
-          annualizedRevenue: revenueHistorical.historical_annualized_revenue || graphDataFallback.annualizedRevenue,
-          wallets: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
-        })
-      } catch (error) {
-        console.error("Error fetching historical data:", error)
-        setHistoricalData(graphDataFallback) // Fallback to static data on any error
-      } finally {
-        setLoadingHistorical(false)
       }
-    }
-    fetchHistoricalData()
-  }, [timePeriod, graphDataFallback])
 
-  // Separate calculation for annualized revenue change to avoid affecting other metrics
+      if (!response.ok) {
+        console.error("Failed to fetch combined data", { status: response.status })
+        setHistoricalData(graphDataFallback)
+        return
+      }
+
+      const combinedData = await response.json()
+
+      if (combinedData.error) {
+        console.error("API returned error:", combinedData.error)
+        setHistoricalData(graphDataFallback)
+        return
+      }
+
+      // Process the combined data
+      const duneHistorical = combinedData.dune
+      const revenueHistorical = combinedData.revenue
+
+      console.log("🔍 Combined data received:", {
+        hasDuneData: !!duneHistorical,
+        hasRevenueData: !!revenueHistorical,
+        walletDataLength: duneHistorical?.historical_wallets?.length || 0,
+        timePeriod: timePeriod,
+      })
+
+      // Process wallet data
+      const dailyWallets = []
+      if (duneHistorical?.historical_wallets && duneHistorical.historical_wallets.length > 0) {
+        const sortedData = [...duneHistorical.historical_wallets].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        )
+
+        sortedData.forEach((item) => {
+          dailyWallets.push({
+            date: item.date,
+            value: item.value,
+            cumulative: item.cumulative,
+          })
+        })
+      } else {
+        // Use fallback data
+        let cumulative = 495000
+        const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
+          cumulative += item.value
+          return { ...item, cumulative }
+        })
+        dailyWallets.push(...fallbackWithCumulative)
+      }
+
+      setHistoricalData({
+        tvl: duneHistorical?.historical_tvl || graphDataFallback.tvl,
+        dailyRevenue: revenueHistorical?.historical_daily_revenue || graphDataFallback.dailyRevenue,
+        annualizedRevenue: revenueHistorical?.historical_annualized_revenue || graphDataFallback.annualizedRevenue,
+        wallets: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
+      })
+    } catch (error) {
+      console.error("Error fetching combined data:", error)
+
+      // Retry on network errors
+      if (error instanceof Error && error.message.includes("fetch") && retryCount < 2) {
+        setTimeout(
+          () => {
+            fetchHistoricalData(retryCount + 1)
+          },
+          1000 * (retryCount + 1),
+        )
+        return
+      }
+
+      setHistoricalData(graphDataFallback)
+    } finally {
+      setLoadingHistorical(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchHistoricalData()
+  }, [timePeriod])
+
+  // Rest of the component remains the same...
   const annualizedRevenueChange = useMemo(() => {
     if (revenueLoading) return ""
 
@@ -315,7 +327,6 @@ export default function HeroMetrics() {
         return Math.round(value).toString()
       }
 
-      // For tooltip, show both daily and cumulative
       if (dataPoint && typeof dataPoint.cumulative === "number") {
         const dailyFormatted = value.toLocaleString()
         const cumulativeFormatted = dataPoint.cumulative.toLocaleString()
@@ -325,7 +336,7 @@ export default function HeroMetrics() {
         }
       }
 
-      return `${value.toLocaleString()} new wallets` // Fallback for tooltip if no cumulative data
+      return `${value.toLocaleString()} new wallets`
     }
     if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`
     if (value >= 10e6) return `$${(value / 1e6).toFixed(1)}M`
@@ -337,7 +348,7 @@ export default function HeroMetrics() {
   const dateFormatterAxis = (dateStr: string) => {
     if (!dateStr) return "Invalid"
     try {
-      const date = new Date(dateStr + "T12:00:00Z") // Assume UTC date part
+      const date = new Date(dateStr + "T12:00:00Z")
       return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
     } catch (e) {
       return "Invalid"
@@ -347,7 +358,7 @@ export default function HeroMetrics() {
   const dateFormatterTooltip = (dateStr: string) => {
     if (!dateStr) return "Invalid Date"
     try {
-      const date = new Date(dateStr + "T12:00:00Z") // Assume UTC date part
+      const date = new Date(dateStr + "T12:00:00Z")
       return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
     } catch (e) {
       return "Invalid Date"
@@ -358,7 +369,6 @@ export default function HeroMetrics() {
     const metric = metricsConfig[activeMetric]
     if (!metric) return ""
     if (chartDimensions.width < 400) {
-      // Abbreviated titles for mobile
       switch (metric.dataKey) {
         case "tvl":
           return "USDC Bridged"
@@ -383,12 +393,10 @@ export default function HeroMetrics() {
         {(Object.keys(metricsConfig) as Array<keyof typeof metricsConfig>).map((metricId) => {
           const metric = metricsConfig[metricId]
 
-          // Get the appropriate lastUpdatedAt value
           const getLastUpdatedAt = () => {
             if (metricId === "tvl" || metricId === "wallets") {
               return duneData?.last_updated
             } else {
-              // For revenue metrics, use a fallback if last_updated_at doesn't exist
               return revenueData?.last_updated_at || revenueData?.last_updated || new Date().toISOString()
             }
           }
@@ -404,7 +412,6 @@ export default function HeroMetrics() {
               active={activeMetric === metricId}
               onClick={() => setActiveMetric(metricId)}
               color={metric.color}
-              // Add refresh indicator props
               updateFrequencyHours={
                 metricId === "dailyRevenue" || metricId === "annualizedRevenue"
                   ? 4

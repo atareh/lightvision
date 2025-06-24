@@ -71,64 +71,103 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
 async function upsertToSupabase(rows: any[], executionId: string) {
   if (!rows || rows.length === 0) {
     console.log(`[${executionId}] Cron: No rows to upsert to Supabase.`)
-    return { inserted: 0, updated: 0, error: null }
+    return { inserted: 0, updated: 0, skipped: 0, error: null }
   }
 
-  console.log(`[${executionId}] Cron: Processing ${rows.length} rows for Supabase table 'daily_revenue'.`)
+  console.log(`[${executionId}] Cron: Processing ${rows.length} rows for selective upsert`)
 
   let inserted = 0
   let updated = 0
+  let skipped = 0
   const now = new Date().toISOString()
 
-  // Process each row individually to ensure updated_at is set correctly
+  // Get the latest date we have in the database
+  const { data: latestRecord, error: latestError } = await supabase
+    .from("daily_revenue")
+    .select("day, revenue, annualized_revenue")
+    .order("day", { ascending: false })
+    .limit(1)
+    .single()
+
+  if (latestError && latestError.code !== "PGRST116") {
+    // PGRST116 = no rows found
+    console.error(`[${executionId}] Cron: Error fetching latest record: ${latestError.message}`)
+    return { inserted: 0, updated: 0, skipped: 0, error: latestError.message }
+  }
+
+  const latestDay = latestRecord?.day || "1970-01-01"
+  console.log(`[${executionId}] Cron: Latest day in database: ${latestDay}`)
+
+  // Filter to only process new days or days with changed values
+  const rowsToProcess = []
+
   for (const row of rows) {
-    // First check if the record exists
-    const { data: existingData, error: checkError } = await supabase
-      .from("daily_revenue")
-      .select("day")
-      .eq("day", row.day)
-      .maybeSingle()
+    if (row.day > latestDay) {
+      // New day - always insert
+      rowsToProcess.push({ ...row, action: "insert" })
+    } else if (row.day === latestDay) {
+      // Same day - check if values changed
+      const revenueChanged = Math.abs((latestRecord.revenue || 0) - row.revenue) > 0.01
+      const annualizedChanged = Math.abs((latestRecord.annualized_revenue || 0) - (row.annualized_revenue || 0)) > 1
 
-    if (checkError) {
-      console.error(`[${executionId}] Cron: Error checking for existing record: ${checkError.message}`)
-      continue
-    }
-
-    if (existingData) {
-      // Record exists - use UPDATE with explicit updated_at
-      const { error: updateError } = await supabase
-        .from("daily_revenue")
-        .update({
-          ...row,
-          updated_at: now, // Explicitly set updated_at to now
-        })
-        .eq("day", row.day)
-
-      if (updateError) {
-        console.error(`[${executionId}] Cron: Failed to update record: ${updateError.message}`)
+      if (revenueChanged || annualizedChanged) {
+        rowsToProcess.push({ ...row, action: "update" })
+        console.log(
+          `[${executionId}] Cron: Values changed for ${row.day} - Revenue: ${latestRecord.revenue} -> ${row.revenue}, Annualized: ${latestRecord.annualized_revenue} -> ${row.annualized_revenue}`,
+        )
       } else {
-        updated++
-        console.log(`[${executionId}] Cron: Updated record for day ${row.day} with new updated_at: ${now}`)
+        skipped++
+        console.log(`[${executionId}] Cron: No changes for ${row.day}, skipping`)
       }
     } else {
-      // Record doesn't exist - INSERT with both timestamps
+      // Older day - skip unless we want to backfill
+      skipped++
+    }
+  }
+
+  console.log(
+    `[${executionId}] Cron: Will process ${rowsToProcess.length} rows (${rowsToProcess.filter((r) => r.action === "insert").length} inserts, ${rowsToProcess.filter((r) => r.action === "update").length} updates), skipping ${skipped}`,
+  )
+
+  // Process only the rows that need changes
+  for (const row of rowsToProcess) {
+    const { action, ...rowData } = row
+
+    if (action === "insert") {
       const { error: insertError } = await supabase.from("daily_revenue").insert({
-        ...row,
+        ...rowData,
         created_at: now,
         updated_at: now,
       })
 
       if (insertError) {
-        console.error(`[${executionId}] Cron: Failed to insert record: ${insertError.message}`)
+        console.error(`[${executionId}] Cron: Failed to insert ${rowData.day}: ${insertError.message}`)
       } else {
         inserted++
-        console.log(`[${executionId}] Cron: Inserted new record for day ${row.day}`)
+        console.log(`[${executionId}] Cron: Inserted new record for ${rowData.day}`)
+      }
+    } else if (action === "update") {
+      const { error: updateError } = await supabase
+        .from("daily_revenue")
+        .update({
+          ...rowData,
+          updated_at: now,
+        })
+        .eq("day", rowData.day)
+
+      if (updateError) {
+        console.error(`[${executionId}] Cron: Failed to update ${rowData.day}: ${updateError.message}`)
+      } else {
+        updated++
+        console.log(`[${executionId}] Cron: Updated record for ${rowData.day}`)
       }
     }
   }
 
-  console.log(`[${executionId}] Cron: Successfully processed data. Inserted: ${inserted}, Updated: ${updated}`)
-  return { inserted, updated, error: null }
+  console.log(
+    `[${executionId}] Cron: Successfully processed data. Inserted: ${inserted}, Updated: ${updated}, Skipped: ${skipped}`,
+  )
+  return { inserted, updated, skipped, error: null }
 }
 
 export async function GET(req: Request) {
@@ -166,18 +205,20 @@ export async function GET(req: Request) {
         message: "No data to process or upsert.",
         inserted: 0,
         updated: 0,
+        skipped: 0,
       })
     }
 
     const result = await upsertToSupabase(processedData, executionId)
     console.log(
-      `[${executionId}] Cron: Revenue sync job completed successfully. Inserted: ${result.inserted}, Updated: ${result.updated}`,
+      `[${executionId}] Cron: Revenue sync job completed successfully. Inserted: ${result.inserted}, Updated: ${result.updated}, Skipped: ${result.skipped}`,
     )
     return NextResponse.json({
       success: true,
       execution_id: executionId,
       inserted: result.inserted,
       updated: result.updated,
+      skipped: result.skipped,
     })
   } catch (error: any) {
     console.error(`[${executionId}] Cron: Error in revenue sync job: ${error.message}`, error)
