@@ -13,18 +13,6 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error("Supabase error:", error)
-
-      // Check if it's a rate limit error
-      if (error.message && error.message.includes("Too Many")) {
-        return NextResponse.json(
-          {
-            error: "Rate limit exceeded. Please try again in a moment.",
-            retry_after: 5,
-          },
-          { status: 429 },
-        )
-      }
-
       return NextResponse.json(
         {
           error: "Failed to fetch data from database. Please sync first using POST /api/dune-sync",
@@ -88,30 +76,34 @@ export async function GET(request: Request) {
 
     // If period is specified, add historical data
     if (period) {
-      let periodData = []
+      // Calculate date range based on period
+      const now = new Date()
+      let daysBack = 7
 
-      // Filter data based on period, but use the actual data range
       switch (period.toLowerCase()) {
         case "7d":
-          // Get the last 7 records
-          periodData = data.slice(-7)
+          daysBack = 7
           break
         case "30d":
-          // Get the last 30 records
-          periodData = data.slice(-30)
+          daysBack = 30
           break
         case "90d":
-          // Get the last 90 records
-          periodData = data.slice(-90)
+          daysBack = 90
           break
         case "max":
-          // Get all data
-          periodData = data
+          daysBack = 365
           break
         default:
-          // Default to last 7 records
-          periodData = data.slice(-7)
+          daysBack = 7
       }
+
+      const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
+
+      // Filter data for the specified period
+      const periodData = data.filter((item) => {
+        const itemDate = new Date(item.block_day)
+        return itemDate >= startDate
+      })
 
       // Calculate CUMULATIVE TVL and wallets for each day (running totals from beginning of time)
       const historical_tvl = []
@@ -122,7 +114,8 @@ export async function GET(request: Request) {
 
       // First, calculate cumulative totals up to the start of our period
       const preStartData = data.filter((item) => {
-        return !periodData.includes(item)
+        const itemDate = new Date(item.block_day)
+        return itemDate < startDate
       })
 
       preStartData.forEach((item) => {
@@ -163,18 +156,6 @@ export async function GET(request: Request) {
     return NextResponse.json(metrics)
   } catch (error) {
     console.error("API error:", error)
-
-    // Check if it's a rate limit or network error
-    if (error instanceof Error && error.message.includes("Too Many")) {
-      return NextResponse.json(
-        {
-          error: "Rate limit exceeded. Please try again in a moment.",
-          retry_after: 5,
-        },
-        { status: 429 },
-      )
-    }
-
     return NextResponse.json(
       {
         error: "Internal server error",

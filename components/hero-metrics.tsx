@@ -102,126 +102,93 @@ export default function HeroMetrics() {
     }
   }, [])
 
-  const fetchHistoricalData = async (retryCount = 0) => {
-    setLoadingHistorical(true)
-    try {
-      const timestamp = Date.now()
-      const [duneHistoricalRes, revenueHistoricalRes] = await Promise.all([
-        fetch(`/api/dune-data?period=${timePeriod.toLowerCase()}&_t=${timestamp}`),
-        fetch(`/api/revenue-data?period=${timePeriod.toLowerCase()}&_t=${timestamp}`),
-      ])
+  useEffect(() => {
+    const fetchHistoricalData = async () => {
+      setLoadingHistorical(true)
+      try {
+        const timestamp = Date.now()
+        const [duneHistoricalRes, revenueHistoricalRes] = await Promise.all([
+          fetch(`/api/dune-data?period=${timePeriod.toLowerCase()}&_t=${timestamp}`),
+          fetch(`/api/revenue-data?period=${timePeriod.toLowerCase()}&_t=${timestamp}`),
+        ])
 
-      // Handle rate limiting with retry
-      if (duneHistoricalRes.status === 429 || revenueHistoricalRes.status === 429) {
-        if (retryCount < 3) {
-          console.log(`Rate limited, retrying in ${2 ** retryCount} seconds...`)
-          setTimeout(
-            () => {
-              fetchHistoricalData(retryCount + 1)
-            },
-            2 ** retryCount * 1000,
-          ) // Exponential backoff
-          return
-        } else {
-          console.error("Max retries exceeded for rate limit")
-          setHistoricalData(graphDataFallback)
+        if (!duneHistoricalRes.ok || !revenueHistoricalRes.ok) {
+          console.error("Failed to fetch historical data", {
+            duneStatus: duneHistoricalRes.status,
+            revenueStatus: revenueHistoricalRes.status,
+          })
+          // Fallback to static data on API error
+          setHistoricalData({
+            tvl: graphDataFallback.tvl,
+            dailyRevenue: graphDataFallback.dailyRevenue,
+            annualizedRevenue: graphDataFallback.annualizedRevenue,
+            wallets: graphDataFallback.wallets,
+          })
           return
         }
-      }
 
-      if (!duneHistoricalRes.ok || !revenueHistoricalRes.ok) {
-        console.error("Failed to fetch historical data", {
-          duneStatus: duneHistoricalRes.status,
-          revenueStatus: revenueHistoricalRes.status,
+        const duneHistorical = await duneHistoricalRes.json()
+        const revenueHistorical = await revenueHistoricalRes.json()
+
+        // Transform historical wallets data - SIMPLE VERSION
+        console.log("🔍 Debug wallet data processing:", {
+          hasWalletData: !!(duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0),
+          walletDataLength: duneHistorical.historical_wallets?.length || 0,
+          rawWalletData: duneHistorical.historical_wallets || [],
+          timePeriod: timePeriod,
         })
-        // Fallback to static data on API error
-        setHistoricalData({
-          tvl: graphDataFallback.tvl,
-          dailyRevenue: graphDataFallback.dailyRevenue,
-          annualizedRevenue: graphDataFallback.annualizedRevenue,
-          wallets: graphDataFallback.wallets,
-        })
-        return
-      }
 
-      const duneHistorical = await duneHistoricalRes.json()
-      const revenueHistorical = await revenueHistoricalRes.json()
+        const dailyWallets = []
+        if (duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0) {
+          // Sort data chronologically
+          const sortedData = [...duneHistorical.historical_wallets].sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          )
 
-      // Rest of the function remains the same...
-      // Transform historical wallets data - SIMPLE VERSION
-      console.log("🔍 Debug wallet data processing:", {
-        hasWalletData: !!(duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0),
-        walletDataLength: duneHistorical.historical_wallets?.length || 0,
-        rawWalletData: duneHistorical.historical_wallets || [],
-        timePeriod: timePeriod,
-      })
+          console.log("📊 Sorted wallet data:", sortedData)
 
-      const dailyWallets = []
-      if (duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0) {
-        // Sort data chronologically
-        const sortedData = [...duneHistorical.historical_wallets].sort(
-          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-        )
+          // Use address_count directly as daily values and calculate running cumulative
+          let runningCumulative = 0
 
-        console.log("📊 Sorted wallet data:", sortedData)
-
-        // Use address_count directly as daily values and calculate running cumulative
-        let runningCumulative = 0
-
-        sortedData.forEach((item) => {
-          runningCumulative += item.value // item.value should be address_count
-          dailyWallets.push({
-            date: item.date,
-            value: item.value, // THIS IS THE DAILY COUNT THAT SHOWS ON THE GRAPH
-            cumulative: runningCumulative, // THIS IS FOR THE TOOLTIP
+          sortedData.forEach((item) => {
+            runningCumulative += item.value // item.value should be address_count
+            dailyWallets.push({
+              date: item.date,
+              value: item.value, // THIS IS THE DAILY COUNT THAT SHOWS ON THE GRAPH
+              cumulative: runningCumulative, // THIS IS FOR THE TOOLTIP
+            })
           })
+
+          console.log("✅ Final processed wallet data:", dailyWallets)
+        } else {
+          // Use fallback data
+          let cumulative = 495000
+          const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
+            cumulative += item.value
+            return { ...item, cumulative }
+          })
+          dailyWallets.push(...fallbackWithCumulative)
+        }
+
+        console.log("📈 Final wallet data being set:", {
+          walletDataLength: dailyWallets.length,
+          usingFallback: dailyWallets.length === 0,
+          finalData: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
         })
 
-        console.log("✅ Final processed wallet data:", dailyWallets)
-      } else {
-        // Use fallback data
-        let cumulative = 495000
-        const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
-          cumulative += item.value
-          return { ...item, cumulative }
+        setHistoricalData({
+          tvl: duneHistorical.historical_tvl || graphDataFallback.tvl,
+          dailyRevenue: revenueHistorical.historical_daily_revenue || graphDataFallback.dailyRevenue,
+          annualizedRevenue: revenueHistorical.historical_annualized_revenue || graphDataFallback.annualizedRevenue,
+          wallets: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
         })
-        dailyWallets.push(...fallbackWithCumulative)
+      } catch (error) {
+        console.error("Error fetching historical data:", error)
+        setHistoricalData(graphDataFallback) // Fallback to static data on any error
+      } finally {
+        setLoadingHistorical(false)
       }
-
-      console.log("📈 Final wallet data being set:", {
-        walletDataLength: dailyWallets.length,
-        usingFallback: dailyWallets.length === 0,
-        finalData: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
-      })
-
-      setHistoricalData({
-        tvl: duneHistorical.historical_tvl || graphDataFallback.tvl,
-        dailyRevenue: revenueHistorical.historical_daily_revenue || graphDataFallback.dailyRevenue,
-        annualizedRevenue: revenueHistorical.historical_annualized_revenue || graphDataFallback.annualizedRevenue,
-        wallets: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
-      })
-    } catch (error) {
-      console.error("Error fetching historical data:", error)
-
-      // If it's a rate limit error and we haven't retried too much, retry
-      if (error instanceof Error && error.message.includes("Too Many") && retryCount < 3) {
-        console.log(`Rate limited, retrying in ${2 ** retryCount} seconds...`)
-        setTimeout(
-          () => {
-            fetchHistoricalData(retryCount + 1)
-          },
-          2 ** retryCount * 1000,
-        )
-        return
-      }
-
-      setHistoricalData(graphDataFallback) // Fallback to static data on any error
-    } finally {
-      setLoadingHistorical(false)
     }
-  }
-
-  useEffect(() => {
     fetchHistoricalData()
   }, [timePeriod, graphDataFallback])
 
