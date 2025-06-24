@@ -82,13 +82,6 @@ export default function HyperEVMChart({ chartData: dataFromProp, isLoading }: Hy
   }, [chartData])
 
   useEffect(() => {
-    // Debug logging
-    if (Object.keys(protocolColors).length > 0) {
-      console.log("Protocol colors assigned:", protocolColors)
-    }
-  }, [protocolColors])
-
-  useEffect(() => {
     const updateDimensions = () => {
       if (chartContainerRef.current) {
         const { width, height } = chartContainerRef.current.getBoundingClientRect()

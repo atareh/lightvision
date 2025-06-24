@@ -12,7 +12,7 @@ const limiter = rateLimit({
 })
 
 interface LlamaFeeData {
-  totalDataChartBreakdown: [number, { hyperliquid?: { [key: string]: number } }][]
+  totalDataChart: [number, number][]
 }
 
 async function fetchLlamaRevenue() {
@@ -27,10 +27,8 @@ async function fetchLlamaRevenue() {
 
 function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: string) {
   // Process the data
-  const data = rawData.totalDataChartBreakdown.map(([timestamp, value]) => {
+  const data = rawData.totalDataChart.map(([timestamp, revenue]) => {
     const day = new Date(timestamp * 1000).toISOString().slice(0, 10)
-    const revenue = value?.hyperliquid?.["Hyperliquid Spot Orderbook"] || 0
-
     return {
       day,
       revenue,
@@ -48,7 +46,7 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
       revenue: entry.revenue,
       annualized_revenue: avg ? Math.round(avg * 365) : null,
       execution_id: executionId,
-      query_id: 999999, // Using a high number to distinguish Llama data from Dune queries
+      query_id: 999999,
     }
   })
 

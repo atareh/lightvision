@@ -18,7 +18,7 @@ const limiter = rateLimit({
 })
 
 interface LlamaFeeData {
-  totalDataChartBreakdown: [number, { hyperliquid?: { [key: string]: number } }][]
+  totalDataChart: [number, number][]
 }
 
 async function fetchLlamaRevenue(executionId: string) {
@@ -35,23 +35,20 @@ async function fetchLlamaRevenue(executionId: string) {
   }
   const data = (await response.json()) as LlamaFeeData
   console.log(
-    `[${executionId}] Cron: Successfully fetched Llama revenue data. Records: ${data.totalDataChartBreakdown?.length || 0}`,
+    `[${executionId}] Cron: Successfully fetched Llama revenue data. Records: ${data.totalDataChart?.length || 0}`,
   )
   return data
 }
 
 function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: string) {
-  console.log(
-    `[${executionId}] Cron: Transforming Llama data. Input records: ${rawData.totalDataChartBreakdown?.length}`,
-  )
-  if (!rawData.totalDataChartBreakdown || rawData.totalDataChartBreakdown.length === 0) {
-    console.warn(`[${executionId}] Cron: No data in totalDataChartBreakdown to transform.`)
+  console.log(`[${executionId}] Cron: Transforming Llama data. Input records: ${rawData.totalDataChart?.length}`)
+  if (!rawData.totalDataChart || rawData.totalDataChart.length === 0) {
+    console.warn(`[${executionId}] Cron: No data in totalDataChart to transform.`)
     return []
   }
 
-  const data = rawData.totalDataChartBreakdown.map(([timestamp, value]) => {
+  const data = rawData.totalDataChart.map(([timestamp, revenue]) => {
     const day = new Date(timestamp * 1000).toISOString().slice(0, 10)
-    const revenue = value?.hyperliquid?.["Hyperliquid Spot Orderbook"] || 0
     return { day, revenue }
   })
 
@@ -65,7 +62,6 @@ function transformAndComputeAnnualized(rawData: LlamaFeeData, executionId: strin
       annualized_revenue: avg ? Math.round(avg * 365) : null,
       execution_id: executionId,
       query_id: 999999,
-      // Don't set timestamps here - we'll handle them differently
     }
   })
   console.log(`[${executionId}] Cron: Transformed data. Output records: ${processedData.length}`)

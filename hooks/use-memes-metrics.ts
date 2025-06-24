@@ -30,16 +30,6 @@ export function useMemesMetrics() {
 
         const result = await response.json()
 
-        // Add debugging console log
-        console.log("Memes Metrics API Response:", {
-          visibleMarketCapChange: result.visibleMarketCapChange,
-          visibleVolumeChange: result.visibleVolumeChange,
-          marketCapChange: result.marketCapChange,
-          volumeChange: result.volumeChange,
-          latest: result.latest,
-          oldest: result.oldest,
-        })
-
         setData(result)
         setError(null)
       } catch (err) {

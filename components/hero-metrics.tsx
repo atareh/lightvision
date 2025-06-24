@@ -14,12 +14,6 @@ export default function HeroMetrics() {
   const { data: duneData, loading: duneLoading } = useDuneData()
   const { data: revenueData, loading: revenueLoading } = useRevenueData()
 
-  // Debug logging
-  useEffect(() => {
-    console.log("Revenue data:", revenueData)
-    console.log("Dune data:", duneData)
-  }, [revenueData, duneData])
-
   const [activeMetric, setActiveMetric] = useState<"tvl" | "dailyRevenue" | "annualizedRevenue" | "wallets">("tvl")
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 }) // Initialize with 0
@@ -136,43 +130,51 @@ export default function HeroMetrics() {
         const duneHistorical = await duneHistoricalRes.json()
         const revenueHistorical = await revenueHistoricalRes.json()
 
-        // Transform historical wallets data from cumulative to daily
+        // Transform historical wallets data - SIMPLE VERSION
+        console.log("🔍 Debug wallet data processing:", {
+          hasWalletData: !!(duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0),
+          walletDataLength: duneHistorical.historical_wallets?.length || 0,
+          rawWalletData: duneHistorical.historical_wallets || [],
+          timePeriod: timePeriod,
+        })
+
         const dailyWallets = []
-        if (duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 1) {
-          let cumulativeTotal = duneHistorical.historical_wallets[0]?.value || 0 // Start with first day's total
+        if (duneHistorical.historical_wallets && duneHistorical.historical_wallets.length > 0) {
+          // Sort data chronologically
+          const sortedData = [...duneHistorical.historical_wallets].sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          )
 
-          for (let i = 1; i < duneHistorical.historical_wallets.length; i++) {
-            const current = duneHistorical.historical_wallets[i]
-            const prev = duneHistorical.historical_wallets[i - 1]
-            const dailyValue = Math.max(0, current.value - prev.value) // Calculate difference
-            cumulativeTotal = current.value // Use the actual cumulative from API
+          console.log("📊 Sorted wallet data:", sortedData)
 
+          // Use address_count directly as daily values and calculate running cumulative
+          let runningCumulative = 0
+
+          sortedData.forEach((item) => {
+            runningCumulative += item.value // item.value should be address_count
             dailyWallets.push({
-              date: current.date,
-              value: dailyValue,
-              cumulative: cumulativeTotal, // Add cumulative data
+              date: item.date,
+              value: item.value, // THIS IS THE DAILY COUNT THAT SHOWS ON THE GRAPH
+              cumulative: runningCumulative, // THIS IS FOR THE TOOLTIP
             })
-          }
+          })
 
-          // If we only have one data point, skip transformation and use fallback
-          if (dailyWallets.length === 0) {
-            // Add cumulative to fallback data
-            let cumulative = 495000 // Starting point for fallback
-            const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
-              cumulative += item.value
-              return { ...item, cumulative }
-            })
-            dailyWallets.push(...fallbackWithCumulative)
-          }
+          console.log("✅ Final processed wallet data:", dailyWallets)
         } else {
-          // Use fallback data with cumulative calculation
-          let cumulative = 495000 // Starting point for fallback
+          // Use fallback data
+          let cumulative = 495000
           const fallbackWithCumulative = graphDataFallback.wallets.map((item) => {
             cumulative += item.value
             return { ...item, cumulative }
           })
           dailyWallets.push(...fallbackWithCumulative)
         }
+
+        console.log("📈 Final wallet data being set:", {
+          walletDataLength: dailyWallets.length,
+          usingFallback: dailyWallets.length === 0,
+          finalData: dailyWallets.length > 0 ? dailyWallets : graphDataFallback.wallets,
+        })
 
         setHistoricalData({
           tvl: duneHistorical.historical_tvl || graphDataFallback.tvl,

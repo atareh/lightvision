@@ -5,6 +5,7 @@ import { useState, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Clock, Zap, ArrowUpRight, ArrowDownRight } from "lucide-react" // Added Arrow icons
 import { formatDistance } from "date-fns"
+import { useDebugSettings } from "@/hooks/use-debug-settings"
 
 interface MetricsCardProps {
   title: string
@@ -39,6 +40,7 @@ export function MetricsCard({
   isRealtime = false,
   showChangeArrow = false, // Default to false
 }: MetricsCardProps) {
+  const { log } = useDebugSettings()
   const [showTooltip, setShowTooltip] = useState(false)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   const cardRef = useRef<HTMLDivElement>(null)
@@ -145,6 +147,9 @@ export function MetricsCard({
             </div>
           ) : (
             <div className="flex flex-col justify-start space-y-2">
+              {/* Debug logging for revenue metrics */}
+              {(title.includes("Revenue") || title.includes("Daily")) &&
+                log("showMetricsCardLogs", `MetricsCard Debug - ${title}:`, { value, change, isLoading, isPositive })}
               <p className="text-2xl font-bold text-white font-teodor tracking-tight">{value}</p>
               <div className="flex items-center h-4">
                 {change && (

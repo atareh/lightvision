@@ -76,34 +76,30 @@ export async function GET(request: Request) {
 
     // If period is specified, add historical data
     if (period) {
-      // Calculate date range based on period
-      const now = new Date()
-      let daysBack = 7
+      let periodData = []
 
+      // Filter data based on period, but use the actual data range
       switch (period.toLowerCase()) {
         case "7d":
-          daysBack = 7
+          // Get the last 7 records
+          periodData = data.slice(-7)
           break
         case "30d":
-          daysBack = 30
+          // Get the last 30 records
+          periodData = data.slice(-30)
           break
         case "90d":
-          daysBack = 90
+          // Get the last 90 records
+          periodData = data.slice(-90)
           break
         case "max":
-          daysBack = 365
+          // Get all data
+          periodData = data
           break
         default:
-          daysBack = 7
+          // Default to last 7 records
+          periodData = data.slice(-7)
       }
-
-      const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
-
-      // Filter data for the specified period
-      const periodData = data.filter((item) => {
-        const itemDate = new Date(item.block_day)
-        return itemDate >= startDate
-      })
 
       // Calculate CUMULATIVE TVL and wallets for each day (running totals from beginning of time)
       const historical_tvl = []
@@ -114,8 +110,7 @@ export async function GET(request: Request) {
 
       // First, calculate cumulative totals up to the start of our period
       const preStartData = data.filter((item) => {
-        const itemDate = new Date(item.block_day)
-        return itemDate < startDate
+        return !periodData.includes(item)
       })
 
       preStartData.forEach((item) => {
@@ -123,7 +118,7 @@ export async function GET(request: Request) {
         cumulativeWallets += item.address_count || 0
       })
 
-      // Now add the period data with cumulative totals
+      // Now add the period data with daily values (not cumulative)
       periodData.forEach((item) => {
         cumulativeTvl += item.netflow || 0
         cumulativeWallets += item.address_count || 0
@@ -139,7 +134,8 @@ export async function GET(request: Request) {
 
         historical_wallets.push({
           date: formattedDate,
-          value: cumulativeWallets,
+          value: item.address_count || 0, // ← Use daily value, not cumulative!
+          cumulative: cumulativeWallets, // ← Add cumulative as separate field
         })
       })
 

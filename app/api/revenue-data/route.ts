@@ -39,36 +39,32 @@ export async function GET(request: Request) {
       return NextResponse.json(processedData)
     }
 
-    // Calculate date range based on period
-    const now = new Date()
-    let daysBack = 7
+    // Filter historical data based on period using actual data count, not date range
+    let historicalData = []
 
     switch (period.toLowerCase()) {
       case "7d":
-        daysBack = 7
+        // Get the last 7 records
+        historicalData = data.slice(0, 7) // data is already sorted desc, so take first 7
         break
       case "30d":
-        daysBack = 30
+        // Get the last 30 records
+        historicalData = data.slice(0, 30)
         break
       case "90d":
-        daysBack = 90
+        // Get the last 90 records
+        historicalData = data.slice(0, 90)
         break
       case "max":
-        daysBack = 365
+        // Get all data
+        historicalData = data
         break
       default:
-        daysBack = 7
+        historicalData = data.slice(0, 7)
     }
 
-    const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
-
-    // Filter historical data based on date range and sort ascending for cumulative calculation
-    const historicalData = data
-      .filter((item) => {
-        const itemDate = new Date(item.day)
-        return itemDate >= startDate
-      })
-      .sort((a, b) => new Date(a.day).getTime() - new Date(b.day).getTime())
+    // Sort ascending for chart display
+    historicalData = historicalData.sort((a, b) => new Date(a.day).getTime() - new Date(b.day).getTime())
 
     // For revenue, we show actual daily values (not cumulative) since revenue is per-day
     const historical_daily_revenue = historicalData.map((item) => ({

@@ -54,22 +54,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log("Debug memes metrics 24h calculation:", {
-      totalRecords: metrics.length,
-      latest: {
-        recorded_at: latest.recorded_at,
-        total_market_cap: latest.total_market_cap,
-        visible_market_cap: latest.visible_market_cap,
-      },
-      record24hAgo: record24hAgo
-        ? {
-            recorded_at: record24hAgo.recorded_at,
-            total_market_cap: record24hAgo.total_market_cap,
-            visible_market_cap: record24hAgo.visible_market_cap,
-            timeDiffHours: minTimeDiff / (1000 * 60 * 60),
-          }
-        : null,
-    })
+    // Remove these two console.log blocks:
+    // console.log("Debug memes metrics 24h calculation:", {
+    //   totalRecords: metrics.length,
+    //   latest: {
+    //     recorded_at: latest.recorded_at,
+    //     total_market_cap: latest.total_market_cap,
+    //     visible_market_cap: latest.visible_market_cap,
+    //   },
+    //   record24hAgo: record24hAgo
+    //     ? {
+    //         recorded_at: record24hAgo.recorded_at,
+    //         total_market_cap: record24hAgo.total_market_cap,
+    //         visible_market_cap: record24hAgo.visible_market_cap,
+    //         timeDiffHours: minTimeDiff / (1000 * 60 * 60),
+    //       }
+    //     : null,
+    // })
 
     // Calculate 24h changes (only if we have a record to compare with)
     let marketCapChange = null
@@ -87,13 +88,15 @@ export async function GET(request: NextRequest) {
       visibleVolumeChange = (latest.visible_volume_24h || 0) - (record24hAgo.visible_volume_24h || 0)
     }
 
-    console.log("Calculated 24h changes:", {
-      marketCapChange,
-      volumeChange,
-      visibleMarketCapChange,
-      visibleVolumeChange,
-      hasComparison: record24hAgo && record24hAgo.id !== latest.id,
-    })
+    // AND
+
+    // console.log("Calculated 24h changes:", {
+    //   marketCapChange,
+    //   volumeChange,
+    //   visibleMarketCapChange,
+    //   visibleVolumeChange,
+    //   hasComparison: record24hAgo && record24hAgo.id !== latest.id,
+    // })
 
     // Use the latest updated_at timestamp from the most recent record if available, otherwise recorded_at
     const lastUpdated = latest.updated_at || latest.recorded_at || new Date().toISOString()

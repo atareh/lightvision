@@ -72,12 +72,6 @@ export default function HyperEVMTokenList() {
   const { data: memesMetrics, loading: memesLoading, error: memesError } = useMemesMetrics()
   const [timeRange, setTimeRange] = useState<"7D" | "30D" | "90D" | "MAX">("7D")
 
-  // DEBUG LOGS
-  console.log("HyperEVMTokenList - memesMetricsData:", memesMetrics)
-  console.log("HyperEVMTokenList - memesMetricsLoading:", memesLoading)
-  console.log("HyperEVMTokenList - tokenData:", tokenData)
-  console.log("HyperEVMTokenList - tokenLoading:", tokenLoading)
-
   useEffect(() => {
     if (!triggerRef.current || !pillRef.current) return
 
