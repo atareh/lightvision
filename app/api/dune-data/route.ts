@@ -13,6 +13,18 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error("Supabase error:", error)
+
+      // Check if it's a rate limit error
+      if (error.message && error.message.includes("Too Many")) {
+        return NextResponse.json(
+          {
+            error: "Rate limit exceeded. Please try again in a moment.",
+            retry_after: 5,
+          },
+          { status: 429 },
+        )
+      }
+
       return NextResponse.json(
         {
           error: "Failed to fetch data from database. Please sync first using POST /api/dune-sync",
@@ -151,6 +163,18 @@ export async function GET(request: Request) {
     return NextResponse.json(metrics)
   } catch (error) {
     console.error("API error:", error)
+
+    // Check if it's a rate limit or network error
+    if (error instanceof Error && error.message.includes("Too Many")) {
+      return NextResponse.json(
+        {
+          error: "Rate limit exceeded. Please try again in a moment.",
+          retry_after: 5,
+        },
+        { status: 429 },
+      )
+    }
+
     return NextResponse.json(
       {
         error: "Internal server error",
