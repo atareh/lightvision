@@ -88,18 +88,17 @@ export default function TokenTableRow({
             variant="outline"
             className="h-6 px-2 text-[10px] bg-[#51d2c1] text-black hover:bg-[#3baa9c] border-[#51d2c1] hover:border-[#3baa9c] transition-colors rounded-md w-full flex items-center justify-between gap-1"
             onClick={() =>
-              window.open(`https://app.hyperswap.exchange/#/swap?outputCurrency=${token.contract_address}`, "_blank")
+              window.open(`https://hyper.g8.xyz/trade/${token.contract_address}?ref=HYPESCREENER`, "_blank", {
+                noopener: "true",
+              })
             }
+            title={`Trade ${token.symbol} on HyperG8`}
           >
             <div className="flex items-center gap-1">
               <div className="w-4 h-4 rounded-full overflow-hidden flex-shrink-0 bg-white">
-                <img
-                  src="https://dropjet.co/wp-content/uploads/2024/10/HyperSwap-Logo.jpg"
-                  alt="HyperSwap"
-                  className="w-full h-full object-cover"
-                />
+                <img src="https://hyper.g8.xyz/hyperg8-logo.jpg" alt="HyperG8" className="w-full h-full object-cover" />
               </div>
-              <span className="truncate">Hyperswap</span>
+              <span className="truncate">HyperG8</span>
             </div>
             <ExternalLink className="h-3 w-3 flex-shrink-0" />
           </Button>

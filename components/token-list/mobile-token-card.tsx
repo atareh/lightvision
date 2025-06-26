@@ -40,7 +40,7 @@ interface MobileTokenCardProps {
   copyToClipboard: (text: string, event: React.MouseEvent, message?: string) => Promise<void>
 }
 
-const HYPERSWAP_BUTTON_LOGO_URL = "https://dropjet.co/wp-content/uploads/2024/10/HyperSwap-Logo.jpg"
+const HYPERG8_BUTTON_LOGO_URL = "https://hyper.g8.xyz/hyperg8-logo.jpg"
 const MAESTRO_BUTTON_LOGO_URL =
   "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTqNCxUnMR1tPiWDqK2aAhA2uGuETzOjdmQaA&s"
 
@@ -59,8 +59,8 @@ const MobileTokenCard: React.FC<MobileTokenCardProps> = ({
   // Use the SAME field names as desktop table
   const marketCapDisplayValue = token.market_cap ?? token.fdv
 
-  const hyperSwapTradeUrl = token.contract_address
-    ? `https://app.hyperswap.exchange/#/swap?outputCurrency=${token.contract_address}`
+  const hyperG8TradeUrl = token.contract_address
+    ? `https://hyper.g8.xyz/trade/${token.contract_address}?ref=HYPESCREENER`
     : null
 
   const maestroTradeUrl = token.contract_address
@@ -217,23 +217,23 @@ const MobileTokenCard: React.FC<MobileTokenCardProps> = ({
 
       {/* Trade Buttons */}
       <div className="grid grid-cols-2 gap-2">
-        {hyperSwapTradeUrl && (
+        {hyperG8TradeUrl && (
           <Button
             variant="ghost"
             size="sm"
             className="h-8 bg-[#79F2E4] text-black hover:bg-[#62D5C7] transition-colors rounded flex items-center justify-center px-2"
             onClick={(e) => {
               e.stopPropagation()
-              window.open(hyperSwapTradeUrl, "_blank")
+              window.open(hyperG8TradeUrl, "_blank")
             }}
-            title={`Trade ${token.symbol} on HyperSwap`}
+            title={`Trade ${token.symbol} on HyperG8`}
           >
             <img
-              src={HYPERSWAP_BUTTON_LOGO_URL || "/placeholder.svg"}
-              alt="HyperSwap"
+              src={HYPERG8_BUTTON_LOGO_URL || "/placeholder.svg"}
+              alt="HyperG8"
               className="w-3 h-3 mr-1 rounded-full object-contain"
             />
-            <span className="font-medium text-[10px]">HyperSwap</span>
+            <span className="font-medium text-[10px]">HyperG8</span>
           </Button>
         )}
         {maestroTradeUrl && (
