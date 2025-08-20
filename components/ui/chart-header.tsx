@@ -13,8 +13,8 @@ export function ChartHeader({ title, timeRange, setTimeRange, isHidden }: ChartH
   }
 
   return (
-    <div className="bg-[#0f1a1f] px-4 py-2 flex justify-between items-center h-[50px]">
-      <h3 className="text-[#868d8f] text-sm font-medium font-sans">{title}</h3>
+    <div className="bg-card/50 px-4 py-2 flex justify-between items-center h-[50px] border-b border-border/20">
+      <h3 className="text-muted-foreground text-sm font-medium font-sans">{title}</h3>
       <div className="flex gap-1">
         {["7D", "30D", "90D", "MAX"].map((period) => (
           <button
@@ -22,8 +22,8 @@ export function ChartHeader({ title, timeRange, setTimeRange, isHidden }: ChartH
             onClick={() => setTimeRange(period as "7D" | "30D" | "90D" | "MAX")}
             className={`px-2 py-1 text-xs rounded transition-all duration-200 ${
               timeRange === period
-                ? "bg-[#00c2c2] text-white"
-                : "text-[#868d8f] hover:text-white hover:bg-[#00c2c280] focus:outline-none focus:ring-2 focus:ring-[#00c2c2] focus:ring-opacity-60"
+                ? "bg-emerald-500 text-white"
+                : "text-muted-foreground hover:text-foreground hover:bg-emerald-500/20 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-60"
             }`}
           >
             {period}

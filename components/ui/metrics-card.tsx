@@ -109,8 +109,8 @@ export function MetricsCard({
     <>
       <Card
         ref={cardRef}
-        className={`w-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden transition-all duration-300 hover:bg-[#132824] hover:border-[#20a67d50] relative ${
-          active ? "before:absolute before:inset-0.5 before:rounded-lg before:border before:pointer-events-none" : ""
+        className={`w-full overflow-hidden transition-all duration-300 hover:shadow-lg relative ${
+          active ? "before:absolute before:inset-0.5 before:rounded-lg before:border before:pointer-events-none ring-2 ring-offset-2 ring-offset-transparent" : ""
         } ${onClick ? "cursor-pointer" : ""}`}
         style={
           active
@@ -130,19 +130,19 @@ export function MetricsCard({
           ></div>
         )}
         <div className="px-4 py-3 flex items-center justify-between">
-          <h3 className="text-[#a0a8aa] text-xs font-medium">
+          <h3 className="text-muted-foreground text-xs font-medium">
             <span className="block sm:hidden">
               {title === "Daily Revenue" ? "Daily Rev." : title === "Annualized Revenue" ? "Annualized Rev." : title}
             </span>
             <span className="hidden sm:block">{title}</span>
           </h3>
         </div>
-        <CardContent className="px-4 py-2 pb-3 border-t border-[#1a2e2a] flex flex-col justify-start space-y-2">
+        <CardContent className="px-4 py-2 pb-3 border-t border-border/20 flex flex-col justify-start space-y-2">
           {isLoading ? (
             <div className="flex flex-col justify-start space-y-2">
-              <div className="animate-pulse h-7 bg-[#2d5a4f] rounded w-24"></div>
+              <div className="animate-pulse h-7 bg-muted rounded w-24"></div>
               <div className="flex items-center h-4">
-                <div className="animate-pulse h-3 bg-[#2d5a4f] rounded w-16"></div>
+                <div className="animate-pulse h-3 bg-muted rounded w-16"></div>
               </div>
             </div>
           ) : (
@@ -150,7 +150,7 @@ export function MetricsCard({
               {/* Debug logging for revenue metrics */}
               {(title.includes("Revenue") || title.includes("Daily")) &&
                 log("showMetricsCardLogs", `MetricsCard Debug - ${title}:`, { value, change, isLoading, isPositive })}
-              <p className="text-2xl font-bold text-white font-teodor tracking-tight">{value}</p>
+              <p className="text-2xl font-bold text-foreground font-teodor tracking-tight">{value}</p>
               <div className="flex items-center h-4">
                 {change && (
                   <span
@@ -183,12 +183,12 @@ export function MetricsCard({
         </CardContent>
         {(isRealtime || refreshText) && (
           <div
-            className="absolute bottom-[18px] right-4 hidden sm:flex items-center gap-1 text-[#868d8f]"
+            className="absolute bottom-[18px] right-4 hidden sm:flex items-center gap-1 text-muted-foreground"
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >
             {isRealtime ? (
-              <Zap className="h-3 w-3 text-[#51d2c1]" />
+              <Zap className="h-3 w-3 text-emerald-500" />
             ) : (
               <>
                 <Clock className="h-3 w-3" />
@@ -200,7 +200,7 @@ export function MetricsCard({
       </Card>
       {showTooltip && refreshTooltip && (
         <div
-          className="fixed z-[9999] bg-[#1a2e2a] border border-[#2d5a4f] rounded px-3 py-2 text-xs text-white shadow-xl pointer-events-none min-w-[200px]"
+          className="fixed z-[9999] floating-card text-foreground text-xs shadow-xl pointer-events-none min-w-[200px] px-3 py-2"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,

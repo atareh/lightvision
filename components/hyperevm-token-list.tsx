@@ -176,13 +176,13 @@ export default function HyperEVMTokenList() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row gap-6">
-        <Card className="flex-1 min-w-0 h-full bg-[#0f1a1f] rounded-xl border border-[#1a2e2a] shadow-lg overflow-hidden">
+        <Card className="flex-1 min-w-0 h-full overflow-hidden">
           <CardContent className="px-4 py-2 h-[528px] flex flex-col justify-start">
             <ChartHeader title="HyperEVM TVL" timeRange={timeRange} setTimeRange={setTimeRange} />
-            <div className="bg-[#0f1a1f] p-0 flex-1 overflow-hidden">
+            <div className="bg-gradient-to-br from-card/50 to-card/80 p-0 flex-1 overflow-hidden">
               {hyperEVMLoading ? (
                 <div className="w-full h-full flex items-center justify-center">
-                  <div className="animate-pulse bg-[#2d5a4f] rounded w-full h-full"></div>
+                  <div className="animate-pulse bg-muted rounded w-full h-full"></div>
                 </div>
               ) : (
                 <div className="w-full h-full">
@@ -201,7 +201,7 @@ export default function HyperEVMTokenList() {
           memesMetricsLoading={memesLoading}
         />
       </div>
-      <Card className="bg-[#0f1a1f] border-[#51d2c1] rounded-2xl shadow">
+      <Card className="border-emerald-400/30">
         <CardContent className="p-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-4">
             <div>

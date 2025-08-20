@@ -428,9 +428,9 @@ export default function HeroMetrics() {
       </div>
 
       <div className="flex-1 min-w-0">
-        <Card className="bg-[#062722] rounded-[10px] shadow-xl drop-shadow-lg overflow-hidden border-0 h-[528px] flex flex-col">
+        <Card className="h-[528px] flex flex-col">
           <ChartHeader title={getGraphTitle()} timeRange={timePeriod} setTimeRange={setTimePeriod} />
-          <CardContent className="bg-[#0f1a1f] p-0 flex-1 overflow-hidden relative">
+          <CardContent className="p-0 flex-1 overflow-hidden relative bg-gradient-to-br from-card/50 to-card/80">
             <div ref={chartContainerRef} className="w-full h-full">
               {chartDimensions.width > 0 && chartDimensions.height > 0 ? (
                 <>
@@ -450,7 +450,7 @@ export default function HeroMetrics() {
                   {loadingHistorical && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                       <div className="flex flex-col items-center">
-                        <div className="text-lg font-bold mb-2 text-center text-white/80">
+                        <div className="text-lg font-bold mb-2 text-center text-foreground/60">
                           <span className="font-normal" style={{ fontFamily: "Teodor, Arial, sans-serif" }}>
                             Hype
                           </span>
@@ -461,7 +461,7 @@ export default function HeroMetrics() {
                             .xyz
                           </span>
                         </div>
-                        <div className="animate-pulse bg-white/20 rounded w-16 h-0.5"></div>
+                        <div className="animate-pulse bg-foreground/20 rounded w-16 h-0.5"></div>
                       </div>
                     </div>
                   )}
