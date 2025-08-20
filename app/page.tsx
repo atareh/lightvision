@@ -9,12 +9,7 @@ import HyperEVMTokenList from "@/components/hyperevm-token-list"
 
 export default function Dashboard() {
   return (
-    <div
-      className="min-h-screen text-white"
-      style={{
-        background: 'url("/images/back_lines.svg") 0% 0% / cover no-repeat #062723',
-      }}
-    >
+    <div className="min-h-screen">
       <div className="p-4 md:p-6">
         <div className="container mx-auto max-w-7xl">
           {/* Main content */}

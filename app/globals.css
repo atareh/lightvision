@@ -36,41 +36,42 @@
 
 @layer base {
   :root {
-    --background: 158 64% 52%;
-    --foreground: 0 0% 98%;
+    /* Warm cream/beige colors from reference image */
+    --background: 35 25% 88%;
+    --foreground: 20 14% 25%;
 
-    --radius: 8px;
+    --radius: 16px;
 
-    --card: 158 64% 15%;
-    --card-foreground: 0 0% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14% 25%;
 
-    --popover: 158 64% 15%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14% 25%;
 
-    --primary: 158 64% 85%;
-    --primary-foreground: 158 64% 15%;
+    --primary: 35 25% 15%;
+    --primary-foreground: 35 25% 95%;
 
-    --secondary: 158 64% 20%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 35 15% 85%;
+    --secondary-foreground: 20 14% 25%;
 
-    --muted: 158 64% 20%;
-    --muted-foreground: 0 0% 70%;
+    --muted: 35 15% 92%;
+    --muted-foreground: 20 14% 60%;
 
-    --accent: 158 64% 85%;
-    --accent-foreground: 158 64% 15%;
+    --accent: 35 25% 90%;
+    --accent-foreground: 20 14% 25%;
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 158 64% 25%;
-    --input: 158 64% 20%;
-    --ring: 158 64% 85%;
+    --border: 35 15% 85%;
+    --input: 35 15% 95%;
+    --ring: 35 25% 70%;
 
-    --chart-1: 158 64% 85%;
-    --chart-2: 45 93% 85%;
+    --chart-1: 158 64% 65%;
+    --chart-2: 45 93% 65%;
     --chart-3: 199 89% 48%;
     --chart-4: 316 70% 50%;
-    --chart-5: 0 0% 65%;
+    --chart-5: 20 14% 45%;
   }
 }
 
@@ -78,9 +79,36 @@
   * {
     @apply border-border;
   }
+  
   body {
-    background-color: #062723;
-    color: white;
-    height: 100%;
+    min-height: 100vh;
+    background: linear-gradient(135deg, 
+      #f4e7d1 0%,     /* Warm cream */
+      #f1e0c4 25%,    /* Light peach */
+      #eed9b7 50%,    /* Warm beige */
+      #e8d2aa 75%,    /* Deeper beige */
+      #e0c89d 100%    /* Golden beige */
+    );
+    background-attachment: fixed;
+    color: hsl(var(--foreground));
+  }
+}
+
+/* Add floating card styles for existing components */
+@layer components {
+  .floating-card {
+    @apply bg-white/80 backdrop-blur-sm border border-white/20 rounded-2xl shadow-lg;
+    box-shadow: 
+      0 4px 20px rgba(0, 0, 0, 0.08),
+      0 1px 8px rgba(0, 0, 0, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    transition: all 0.2s ease-out;
+  }
+  
+  .floating-card:hover {
+    box-shadow: 
+      0 6px 25px rgba(0, 0, 0, 0.12),
+      0 2px 12px rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
 }
