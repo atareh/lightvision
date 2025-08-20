@@ -1,4 +1,14 @@
 {
+  "name": "lightvision",
+  "version": "1.0.0",
+  "description": "LightVision - A modern crypto dashboard and analytics platform",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-label": "^2.0.2",
@@ -25,5 +35,11 @@
     "@types/react-dom": "^19",
     "postcss": "^8.5",
     "typescript": "^5"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atareh/lightvision.git"
+  },
+  "author": "atareh",
+  "license": "MIT"
 }

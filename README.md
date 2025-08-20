@@ -1,30 +1,91 @@
-# Hypescreener
+# LightVision
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+🌟 **A modern crypto dashboard and analytics platform**
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/hey-atarehxyzs-projects/v0-hypescreener)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/z7Xf1gcmbzp)
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/)
+[![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 
-## Overview
+## 🚀 Overview
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+LightVision is a comprehensive crypto analytics platform that provides real-time insights into Total Value Locked (TVL), token metrics, and DeFi protocol data. Built with Next.js, TypeScript, and modern web technologies.
 
-## Deployment
+## ✨ Features
 
-Your project is live at:
+- 📊 **Real-time TVL Analytics** - Track Total Value Locked across protocols
+- 💰 **Token Metrics** - Comprehensive token data and performance tracking
+- 🔄 **DeFi Protocol Insights** - Monitor protocol performance and metrics
+- 📱 **Responsive Design** - Mobile-first design with beautiful UI
+- ⚡ **Fast Performance** - Optimized for speed and user experience
+- 🌙 **Dark/Light Mode** - Theme switching support
 
-**[https://vercel.com/hey-atarehxyzs-projects/v0-hypescreener](https://vercel.com/hey-atarehxyzs-projects/v0-hypescreener)**
+## 🛠️ Tech Stack
 
-## Build your app
+- **Framework**: Next.js 15
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **UI Components**: Radix UI
+- **Charts**: Recharts
+- **Database**: Supabase
+- **Deployment**: Vercel
 
-Continue building your app on:
+## 🚀 Getting Started
 
-**[https://v0.dev/chat/projects/z7Xf1gcmbzp](https://v0.dev/chat/projects/z7Xf1gcmbzp)**
+### Prerequisites
 
-## How It Works
+- Node.js 18+ 
+- pnpm (recommended) or npm
 
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/atareh/lightvision.git
+cd lightvision
+```
+
+2. Install dependencies:
+```bash
+pnpm install
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env.local
+# Add your environment variables
+```
+
+4. Run the development server:
+```bash
+pnpm dev
+```
+
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## 📁 Project Structure
+
+```
+lightvision/
+├── app/                 # Next.js app directory
+│   ├── api/            # API routes
+│   ├── dashboard/      # Dashboard pages
+│   └── layout.tsx      # Root layout
+├── components/         # React components
+│   ├── ui/            # UI components
+│   └── charts/        # Chart components
+├── hooks/             # Custom React hooks
+├── lib/               # Utility functions
+└── styles/            # Global styles
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built with inspiration from the DeFi ecosystem
+- Thanks to the open-source community for amazing tools and libraries
